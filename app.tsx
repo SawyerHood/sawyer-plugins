@@ -36,7 +36,7 @@ const ASSET_URL = "/api/v1/plugins/miku/http/assets/miku.png";
 const EDGE_INSET_PX = 12;
 const BUBBLE_SAFE_TOP_PX = 62;
 const BUBBLE_VIEWPORT_MARGIN_PX = 10;
-const BUBBLE_ANCHOR_Y_PX = 24;
+const BUBBLE_SPRITE_GAP_PX = 8;
 const STORAGE_KEY = "bb-plugin-miku:position-v2";
 const LEGACY_STORAGE_KEY = "bb-plugin-miku:position";
 
@@ -423,10 +423,12 @@ function MikuOverlay() {
       lastFrame = frame;
     };
 
-    const positionBubble = (x: number, y: number) => {
+    const positionBubble = (x: number, y: number, frame: SpriteFrame) => {
       const bubbleWidth = bubble.offsetWidth;
       const bubbleHeight = bubble.offsetHeight;
       if (bubbleWidth === 0 || bubbleHeight === 0) return;
+      const renderedScale = walker.offsetHeight / CANVAS_HEIGHT;
+      const visibleSpriteTop = (CANVAS_HEIGHT - frame.height) * renderedScale;
 
       const layout = calculateBubbleLayout({
         companionX: x,
@@ -436,7 +438,7 @@ function MikuOverlay() {
         bubbleHeight,
         viewportWidth: window.innerWidth,
         viewportMargin: BUBBLE_VIEWPORT_MARGIN_PX,
-        anchorY: BUBBLE_ANCHOR_Y_PX,
+        anchorY: visibleSpriteTop - BUBBLE_SPRITE_GAP_PX,
       });
 
       bubble.style.setProperty(
@@ -446,10 +448,6 @@ function MikuOverlay() {
       bubble.style.setProperty(
         "--miku-bubble-top",
         `${Math.round(layout.localTop)}px`,
-      );
-      bubble.style.setProperty(
-        "--miku-bubble-arrow-left",
-        `${Math.round(layout.arrowLeft)}px`,
       );
     };
 
@@ -463,7 +461,9 @@ function MikuOverlay() {
         bubble.dataset.visible = snapshot.bubble === null ? "false" : "true";
         lastBubble = snapshot.bubble;
       }
-      if (snapshot.bubble !== null) positionBubble(snapshot.x, snapshot.y);
+      if (snapshot.bubble !== null) {
+        positionBubble(snapshot.x, snapshot.y, snapshot.frame);
+      }
       draw(snapshot.frame);
     };
 

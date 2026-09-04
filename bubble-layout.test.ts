@@ -12,17 +12,25 @@ const base = {
 };
 
 describe("Miku bubble layout", () => {
-  it("keeps the bubble inside the left edge and points back at Miku", () => {
+  it("keeps the bubble inside the left edge", () => {
     const layout = calculateBubbleLayout({ ...base, companionX: 0 });
     expect(layout.localLeft).toBeGreaterThanOrEqual(10);
-    expect(layout.arrowLeft).toBeGreaterThanOrEqual(12);
   });
 
-  it("moves to Miku's left near the right viewport edge", () => {
+  it("keeps the bubble inside the right viewport edge", () => {
     const layout = calculateBubbleLayout({ ...base, companionX: 850 });
     const viewportLeft = 850 + layout.localLeft;
     expect(viewportLeft + base.bubbleWidth).toBeLessThanOrEqual(990);
     expect(layout.localLeft).toBeLessThan(0);
+  });
+
+  it("centers the bubble over Miku when there is enough room", () => {
+    const companionX = 400;
+    const layout = calculateBubbleLayout({ ...base, companionX });
+    const companionCenter = companionX + base.companionWidth / 2;
+    const bubbleCenter = companionX + layout.localLeft + base.bubbleWidth / 2;
+
+    expect(bubbleCenter).toBe(companionCenter);
   });
 
   it("keeps tall wrapped text above Miku without crossing the top edge", () => {

@@ -110,19 +110,6 @@
   pointer-events: none;
 }
 
-.miku-bubble::after {
-  content: "";
-  position: absolute;
-  bottom: -7px;
-  width: 12px;
-  height: 12px;
-  border-right: 1px solid color-mix(in srgb, var(--border) 72%, #00d8c8 28%);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, #00d8c8 28%);
-  background: color-mix(in srgb, var(--popover) 94%, #d9fffa 6%);
-  transform: rotate(45deg);
-  left: var(--miku-bubble-arrow-left, 17px);
-}
-
 .miku-bubble[data-visible="true"] {
   opacity: 1;
   transform: translateY(0) scale(1);

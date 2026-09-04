@@ -334,7 +334,12 @@ export class CompanionController {
       thinkingIsActive &&
       event.type !== "brain-thinking" &&
       this.mode !== "dragging";
-    if (shouldReplaceThinking || (this.mode !== "reacting" && this.mode !== "dragging")) {
+    if (
+      shouldReplaceThinking ||
+      (this.bubbleText === null &&
+        this.mode !== "reacting" &&
+        this.mode !== "dragging")
+    ) {
       this.startReaction(reaction);
       return true;
     }
@@ -378,9 +383,7 @@ export class CompanionController {
           reaction.event.type === "brain-comment" ||
           reaction.event.type === "brain-failed",
       );
-    this.stateRemaining = brainResponseIsWaiting
-      ? landingDuration
-      : Math.max(landingDuration, this.bubbleRemaining);
+    this.stateRemaining = landingDuration;
     if (brainResponseIsWaiting) {
       this.bubbleRemaining = Math.min(this.bubbleRemaining, landingDuration);
     }
@@ -392,7 +395,14 @@ export class CompanionController {
 
     if (this.bubbleRemaining > 0) {
       this.bubbleRemaining -= elapsed;
-      if (this.bubbleRemaining <= 0) this.bubbleText = null;
+      if (this.bubbleRemaining <= 0) {
+        this.bubbleText = null;
+        this.activeReactionType = null;
+        if (this.mode !== "reacting" && this.mode !== "dragging") {
+          const next = this.reactionQueue.shift();
+          if (next !== undefined) this.startReaction(next);
+        }
+      }
     }
 
     if (this.mode === "reacting") {
@@ -447,19 +457,26 @@ export class CompanionController {
             MAX_SPEECH_DURATION_MS,
           );
     this.bubbleRemaining = speechDuration;
-    this.stateRemaining = Math.max(clipDuration(reaction.clip), speechDuration);
+    // The animation and speech have independent lifetimes: play the reaction
+    // once, then let Miku move naturally while the bubble keeps lingering.
+    this.stateRemaining = clipDuration(reaction.clip);
   }
 
   private finishReaction(): void {
-    this.activeReactionType = null;
-    this.bubbleText = null;
-    this.bubbleRemaining = 0;
-    const next = this.reactionQueue.shift();
-    if (next !== undefined) {
-      this.startReaction(next);
-      return;
+    const finishedLanding = this.clipId === "landing";
+    if (this.bubbleText === null) {
+      this.activeReactionType = null;
+      const next = this.reactionQueue.shift();
+      if (next !== undefined) {
+        this.startReaction(next);
+        return;
+      }
     }
-    this.startIdle(900 + this.random() * 900);
+    if (finishedLanding) {
+      this.startIdle(900 + this.random() * 900);
+    } else {
+      this.startWalking();
+    }
   }
 
   private startWalking(): void {

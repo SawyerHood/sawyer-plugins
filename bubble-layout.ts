@@ -12,7 +12,6 @@ export interface BubbleLayoutInput {
 export interface BubbleLayout {
   localLeft: number;
   localTop: number;
-  arrowLeft: number;
 }
 
 const clamp = (value: number, minimum: number, maximum: number): number =>
@@ -20,13 +19,7 @@ const clamp = (value: number, minimum: number, maximum: number): number =>
 
 export function calculateBubbleLayout(input: BubbleLayoutInput): BubbleLayout {
   const anchorX = input.companionWidth / 2;
-  const roomOnRight = input.viewportWidth - (input.companionX + anchorX);
-  const roomOnLeft = input.companionX + anchorX;
-  const placeOnRight =
-    roomOnRight >= input.bubbleWidth + 8 || roomOnRight >= roomOnLeft;
-  const idealLocalLeft = placeOnRight
-    ? anchorX + 4
-    : anchorX - input.bubbleWidth - 4;
+  const idealLocalLeft = anchorX - input.bubbleWidth / 2;
   const maximumViewportLeft = Math.max(
     input.viewportMargin,
     input.viewportWidth - input.bubbleWidth - input.viewportMargin,
@@ -41,15 +34,9 @@ export function calculateBubbleLayout(input: BubbleLayoutInput): BubbleLayout {
     input.viewportMargin - input.companionY,
     input.anchorY - input.bubbleHeight,
   );
-  const arrowCenter = clamp(
-    anchorX - localLeft,
-    18,
-    Math.max(18, input.bubbleWidth - 18),
-  );
 
   return {
     localLeft,
     localTop,
-    arrowLeft: arrowCenter - 6,
   };
 }

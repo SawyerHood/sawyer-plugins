@@ -65,6 +65,26 @@ describe("CompanionController", () => {
     expect(controller.tick(0, false).bubble).toBe("Oof… let’s try that again.");
   });
 
+  it("resumes walking after a short reaction while its speech lingers", () => {
+    const controller = new CompanionController(
+      { xRatio: 0.5, yRatio: 0.5, direction: 1 },
+      () => 0,
+    );
+    controller.setBounds({ minX: 0, maxX: 400, minY: 0, maxY: 300 });
+    controller.dispatch(event("clicked"));
+
+    for (let index = 0; index < 18; index += 1) controller.tick(64, false);
+    const first = controller.tick(0, false);
+    for (let index = 0; index < 5; index += 1) controller.tick(64, false);
+    const later = controller.tick(0, false);
+
+    expect(first.bubble).toBe("Miku Miku! ♪");
+    expect(later.bubble).toBe(first.bubble);
+    expect(first.mode).toBe("walking");
+    expect(later.x).not.toBe(first.x);
+    expect(later.frame).not.toBe(first.frame);
+  });
+
   it("deduplicates event bursts with per-event cooldowns", () => {
     const controller = new CompanionController(
       { xRatio: 0.5, yRatio: 0.5, direction: 1 },
