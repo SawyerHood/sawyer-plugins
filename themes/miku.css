@@ -1,0 +1,153 @@
+:root,
+.light {
+  color-scheme: light;
+
+  /* Snowy mint surfaces with the readable, darker side of Miku turquoise. */
+  --canvas: #f4fbfb;
+  --ink: #243438;
+  --primary: #087f83;
+  --primary-foreground: #ffffff;
+  --timeline-accent: #c93673;
+  --file-accent: var(--timeline-accent);
+
+  --muted-foreground: color-mix(in oklch, var(--ink) 72%, var(--canvas));
+  --subtle-foreground: color-mix(in oklch, var(--ink) 58%, var(--canvas));
+  --readback-foreground: color-mix(in oklch, var(--ink) 64%, var(--canvas));
+
+  --destructive: #c83f59;
+  --destructive-foreground: #ffffff;
+  --destructive-text: #a72c46;
+  --warning: #d98519;
+  --warning-text: #87500c;
+  --attention: #d6688f;
+  --success: #287c65;
+  --diff-added: #287c65;
+  --diff-removed: #c83f59;
+  --pr-merged: #8156ad;
+
+  --sidebar: #eaf7f6;
+  --sidebar-foreground: var(--ink);
+  --sidebar-accent: color-mix(in srgb, #39c5bb 17%, var(--sidebar));
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: color-mix(in srgb, #087f83 18%, var(--sidebar));
+  --border-seam: color-mix(in srgb, #087f83 14%, var(--canvas));
+  --border-seam-vertical: color-mix(in srgb, #087f83 17%, var(--canvas));
+  --surface-scrim: color-mix(in srgb, var(--canvas) 91%, #39c5bb);
+  --radius: 0.5rem;
+
+  --font-sans: Inter, ui-rounded, system-ui, sans-serif;
+  --font-mono: "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+  --ansi-0: #243438;
+  --ansi-1: #c83f59;
+  --ansi-2: #287c65;
+  --ansi-3: #b87312;
+  --ansi-4: #247da1;
+  --ansi-5: #a64177;
+  --ansi-6: #087f83;
+  --ansi-7: #d7e9e8;
+  --ansi-8: #5f7376;
+  --ansi-9: #e25a73;
+  --ansi-10: #3e9a7e;
+  --ansi-11: #d99b35;
+  --ansi-12: #399ac2;
+  --ansi-13: #d6538d;
+  --ansi-14: #18a6a6;
+  --ansi-15: #ffffff;
+
+  --ansi-bg-fg-0: #ffffff;
+  --ansi-bg-fg-1: #ffffff;
+  --ansi-bg-fg-2: #ffffff;
+  --ansi-bg-fg-3: #ffffff;
+  --ansi-bg-fg-4: #ffffff;
+  --ansi-bg-fg-5: #ffffff;
+  --ansi-bg-fg-6: #ffffff;
+  --ansi-bg-fg-7: #152326;
+  --ansi-bg-fg-8: #ffffff;
+  --ansi-bg-fg-9: #152326;
+  --ansi-bg-fg-10: #152326;
+  --ansi-bg-fg-11: #152326;
+  --ansi-bg-fg-12: #152326;
+  --ansi-bg-fg-13: #152326;
+  --ansi-bg-fg-14: #152326;
+  --ansi-bg-fg-15: #152326;
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Ayu-like blue charcoal, tuned around Miku's #39c5bb signature color. */
+  --canvas: #0d141b;
+  --ink: #d9f0ee;
+  --primary: #39c5bb;
+  --primary-foreground: #071513;
+  --timeline-accent: #ff6fae;
+  --file-accent: var(--timeline-accent);
+
+  --muted-foreground: #a3cbc7;
+  --subtle-foreground: #6f9694;
+  --readback-foreground: #86aaa7;
+
+  --destructive: #ff6680;
+  --destructive-foreground: #21070d;
+  --destructive-text: #ff8297;
+  --warning: #ffc56f;
+  --warning-text: #ffd18b;
+  --attention: #ff8dbd;
+  --success: #68d8ad;
+  --diff-added: #68d8ad;
+  --diff-removed: #ff7690;
+  --pr-merged: #c89aff;
+
+  --sidebar: #091017;
+  --sidebar-foreground: var(--ink);
+  --sidebar-accent: color-mix(in srgb, #39c5bb 14%, var(--sidebar));
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: color-mix(in srgb, #39c5bb 16%, var(--sidebar));
+  --border-seam: color-mix(in srgb, #39c5bb 11%, var(--canvas));
+  --border-seam-vertical: color-mix(in srgb, #39c5bb 14%, var(--canvas));
+  --surface-scrim: color-mix(in srgb, var(--canvas) 93%, #39c5bb);
+
+  --ansi-0: #18242d;
+  --ansi-1: #ff6680;
+  --ansi-2: #68d8ad;
+  --ansi-3: #ffc56f;
+  --ansi-4: #63b7df;
+  --ansi-5: #ff79b7;
+  --ansi-6: #39c5bb;
+  --ansi-7: #b9d7d4;
+  --ansi-8: #4f6870;
+  --ansi-9: #ff8297;
+  --ansi-10: #82e7c0;
+  --ansi-11: #ffd18b;
+  --ansi-12: #83cdf0;
+  --ansi-13: #ff9bca;
+  --ansi-14: #65e1d7;
+  --ansi-15: #efffff;
+
+  --ansi-bg-fg-0: #efffff;
+  --ansi-bg-fg-1: #19070c;
+  --ansi-bg-fg-2: #071513;
+  --ansi-bg-fg-3: #201400;
+  --ansi-bg-fg-4: #07131a;
+  --ansi-bg-fg-5: #200812;
+  --ansi-bg-fg-6: #071513;
+  --ansi-bg-fg-7: #071513;
+  --ansi-bg-fg-8: #efffff;
+  --ansi-bg-fg-9: #19070c;
+  --ansi-bg-fg-10: #071513;
+  --ansi-bg-fg-11: #201400;
+  --ansi-bg-fg-12: #07131a;
+  --ansi-bg-fg-13: #200812;
+  --ansi-bg-fg-14: #071513;
+  --ansi-bg-fg-15: #071513;
+}
+
+::selection {
+  color: var(--primary-foreground);
+  background: color-mix(in srgb, var(--primary) 72%, transparent);
+}
+
+* {
+  scrollbar-color: color-mix(in srgb, var(--primary) 45%, transparent) transparent;
+}

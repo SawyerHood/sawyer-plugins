@@ -1,0 +1,72 @@
+{
+  "name": "bb-plugin-miku",
+  "version": "0.3.0",
+  "description": "An event-aware Hatsune Miku companion and full BB app theme.",
+  "author": "Sawyer Hood",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SawyerHood/bb-plugin-miku.git"
+  },
+  "homepage": "https://github.com/SawyerHood/bb-plugin-miku#readme",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "bb": ">=0.41",
+    "bbPluginSdk": ">=0.4.40"
+  },
+  "bb": {
+    "name": "Miku Companion",
+    "description": "An event-aware Hatsune Miku companion that roams BB with a full turquoise-and-pink app theme.",
+    "branding": {
+      "icon": "Sparkles"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx",
+    "skills": [],
+    "themes": [
+      {
+        "id": "miku",
+        "name": "Miku",
+        "description": "Turquoise, cyan, charcoal, and pink inspired by Hatsune Miku.",
+        "css": "./themes/miku.css",
+        "codeTheme": {
+          "dark": "./themes/miku-dark.json",
+          "light": "./themes/miku-light.json"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "build": "bb plugin build .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.4.40",
+    "@pierre/diffs": "^1.2.9",
+    "@radix-ui/react-alert-dialog": "^1.1.19",
+    "@radix-ui/react-context-menu": "^2.3.3",
+    "@radix-ui/react-dialog": "^1.1.19",
+    "@radix-ui/react-dropdown-menu": "^2.1.20",
+    "@radix-ui/react-hover-card": "^1.1.19",
+    "@radix-ui/react-menubar": "^1.1.20",
+    "@radix-ui/react-navigation-menu": "^1.2.18",
+    "@radix-ui/react-popover": "^1.1.19",
+    "@radix-ui/react-select": "^2.3.3",
+    "@radix-ui/react-tooltip": "^1.2.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "better-sqlite3": "^12.11.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cron-parser": "^5.10.0",
+    "hono": "^4.13.5",
+    "sonner": "^1.7.4",
+    "tailwind-merge": "^3.4.0",
+    "typescript": "^5.7.0",
+    "vaul": "^1.1.2",
+    "vitest": "^3.2.7",
+    "zod": "^4.5.4"
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "Miku Day",
+  "type": "light",
+  "colors": {
+    "editor.background": "#f4fbfb",
+    "editor.foreground": "#243438",
+    "editorLineNumber.foreground": "#8aa5a5",
+    "editorLineNumber.activeForeground": "#087f83",
+    "editorCursor.foreground": "#c93673",
+    "editor.selectionBackground": "#39c5bb40",
+    "editor.inactiveSelectionBackground": "#39c5bb26",
+    "editor.lineHighlightBackground": "#087f830a",
+    "editorIndentGuide.background1": "#c8dfde",
+    "editorIndentGuide.activeBackground1": "#087f83",
+    "editorWhitespace.foreground": "#c8dfde"
+  },
+  "tokenColors": [
+    {
+      "scope": ["comment", "punctuation.definition.comment"],
+      "settings": { "foreground": "#668184", "fontStyle": "italic" }
+    },
+    {
+      "scope": ["keyword", "storage", "storage.type"],
+      "settings": { "foreground": "#b52c69" }
+    },
+    {
+      "scope": ["string", "string.quoted", "markup.inline.raw.string"],
+      "settings": { "foreground": "#4e7d19" }
+    },
+    {
+      "scope": ["constant.numeric", "constant.language", "constant.character"],
+      "settings": { "foreground": "#9a6410" }
+    },
+    {
+      "scope": ["entity.name.function", "support.function", "meta.function-call"],
+      "settings": { "foreground": "#087f83" }
+    },
+    {
+      "scope": ["entity.name.type", "entity.name.class", "support.type", "support.class"],
+      "settings": { "foreground": "#247da1" }
+    },
+    {
+      "scope": ["variable", "meta.definition.variable.name", "support.variable"],
+      "settings": { "foreground": "#243438" }
+    },
+    {
+      "scope": ["variable.parameter", "meta.function.parameters"],
+      "settings": { "foreground": "#a64177" }
+    },
+    {
+      "scope": ["punctuation", "meta.brace", "meta.delimiter"],
+      "settings": { "foreground": "#60777a" }
+    },
+    {
+      "scope": ["markup.heading", "entity.name.tag"],
+      "settings": { "foreground": "#087f83", "fontStyle": "bold" }
+    }
+  ]
+}
