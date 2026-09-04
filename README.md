@@ -17,6 +17,8 @@ use a dedicated hidden BB thread to comment on real activity in the app.
   when the real response is ready.
 - Centers pointerless bubbles over Miku's visible sprite pixels and clamps them
   to the viewport, including long wrapped text and positions near screen edges.
+- Stabilizes the bubble against a shared walking/idle silhouette so differently
+  cropped animation frames do not make it jitter vertically.
 - Supports autonomous periodic check-ins, with a configurable interval.
 - Lets you choose the brain project, hidden thread, provider, model, service
   tier, reasoning level, and permission mode from the plugin settings page.

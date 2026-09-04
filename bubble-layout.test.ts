@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { calculateBubbleLayout } from "./bubble-layout";
+import {
+  calculateBubbleAnchorY,
+  calculateBubbleLayout,
+} from "./bubble-layout";
 
 const base = {
   companionY: 120,
@@ -12,6 +15,40 @@ const base = {
 };
 
 describe("Miku bubble layout", () => {
+  it("uses one stable anchor across differently cropped walk and idle frames", () => {
+    const anchors = [59, 64, 61, 63, 68].map((frameHeight, index) =>
+      calculateBubbleAnchorY({
+        frameHeight,
+        canvasHeight: 102,
+        renderedHeight: 153,
+        gap: 8,
+        mode: index < 3 ? "walking" : "idle",
+      }),
+    );
+
+    expect(new Set(anchors).size).toBe(1);
+    expect(anchors[0]).toBe(49);
+  });
+
+  it("still clears the current frame during tall reactions", () => {
+    const regular = calculateBubbleAnchorY({
+      frameHeight: 64,
+      canvasHeight: 102,
+      renderedHeight: 153,
+      gap: 8,
+      mode: "reacting",
+    });
+    const tall = calculateBubbleAnchorY({
+      frameHeight: 97,
+      canvasHeight: 102,
+      renderedHeight: 153,
+      gap: 8,
+      mode: "reacting",
+    });
+
+    expect(tall).toBeLessThan(regular);
+  });
+
   it("keeps the bubble inside the left edge", () => {
     const layout = calculateBubbleLayout({ ...base, companionX: 0 });
     expect(layout.localLeft).toBeGreaterThanOrEqual(10);

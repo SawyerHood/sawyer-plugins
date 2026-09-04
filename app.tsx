@@ -17,7 +17,11 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import type { BrainSelection } from "./brain-contract";
 import type { brainRpcContract } from "./brain-contract";
-import { calculateBubbleLayout } from "./bubble-layout";
+import {
+  calculateBubbleAnchorY,
+  calculateBubbleLayout,
+  type BubbleMotionMode,
+} from "./bubble-layout";
 import {
   CompanionController,
   isMikuEvent,
@@ -423,12 +427,22 @@ function MikuOverlay() {
       lastFrame = frame;
     };
 
-    const positionBubble = (x: number, y: number, frame: SpriteFrame) => {
+    const positionBubble = (
+      x: number,
+      y: number,
+      frame: SpriteFrame,
+      mode: BubbleMotionMode,
+    ) => {
       const bubbleWidth = bubble.offsetWidth;
       const bubbleHeight = bubble.offsetHeight;
       if (bubbleWidth === 0 || bubbleHeight === 0) return;
-      const renderedScale = walker.offsetHeight / CANVAS_HEIGHT;
-      const visibleSpriteTop = (CANVAS_HEIGHT - frame.height) * renderedScale;
+      const anchorY = calculateBubbleAnchorY({
+        frameHeight: frame.height,
+        canvasHeight: CANVAS_HEIGHT,
+        renderedHeight: walker.offsetHeight,
+        gap: BUBBLE_SPRITE_GAP_PX,
+        mode,
+      });
 
       const layout = calculateBubbleLayout({
         companionX: x,
@@ -438,7 +452,7 @@ function MikuOverlay() {
         bubbleHeight,
         viewportWidth: window.innerWidth,
         viewportMargin: BUBBLE_VIEWPORT_MARGIN_PX,
-        anchorY: visibleSpriteTop - BUBBLE_SPRITE_GAP_PX,
+        anchorY,
       });
 
       bubble.style.setProperty(
@@ -462,7 +476,7 @@ function MikuOverlay() {
         lastBubble = snapshot.bubble;
       }
       if (snapshot.bubble !== null) {
-        positionBubble(snapshot.x, snapshot.y, snapshot.frame);
+        positionBubble(snapshot.x, snapshot.y, snapshot.frame, snapshot.mode);
       }
       draw(snapshot.frame);
     };
