@@ -17,6 +17,10 @@ export type MikuEventType =
   | "message-queued"
   | "message-dispatched"
   | "task-completed"
+  | "brain-thinking"
+  | "brain-comment"
+  | "brain-dismiss"
+  | "brain-failed"
   | "clicked";
 
 export interface MikuEvent {
@@ -26,6 +30,7 @@ export interface MikuEvent {
   projectId?: string;
   threadId?: string;
   taskKey?: string;
+  speech?: string;
 }
 
 export interface CompanionBounds {
@@ -81,6 +86,10 @@ const EVENT_COOLDOWNS: Record<MikuEventType, number> = {
   "message-queued": 4_000,
   "message-dispatched": 2_000,
   "task-completed": 800,
+  "brain-thinking": 0,
+  "brain-comment": 0,
+  "brain-dismiss": 0,
+  "brain-failed": 0,
   clicked: 450,
 };
 
@@ -103,6 +112,10 @@ export function isMikuEvent(value: unknown): value is MikuEvent {
     "message-queued",
     "message-dispatched",
     "task-completed",
+    "brain-thinking",
+    "brain-comment",
+    "brain-dismiss",
+    "brain-failed",
     "clicked",
   ];
   return (
@@ -114,7 +127,9 @@ export function isMikuEvent(value: unknown): value is MikuEvent {
     Number.isFinite(candidate.at) &&
     (candidate.projectId === undefined || typeof candidate.projectId === "string") &&
     (candidate.threadId === undefined || typeof candidate.threadId === "string") &&
-    (candidate.taskKey === undefined || typeof candidate.taskKey === "string")
+    (candidate.taskKey === undefined || typeof candidate.taskKey === "string") &&
+    (candidate.speech === undefined ||
+      (typeof candidate.speech === "string" && candidate.speech.length <= 180))
   );
 }
 
@@ -184,6 +199,34 @@ function reactionFor(event: MikuEvent): Reaction {
         speech: event.taskKey
           ? [`${event.taskKey} complete! ♪`, "Task complete—great job!", "Another one done!"]
           : ["Task complete! ♪", "Great job!", "Another one done!"],
+      };
+    case "brain-thinking":
+      return {
+        event,
+        clip: "patient",
+        priority: 95,
+        speech: ["…"],
+      };
+    case "brain-comment":
+      return {
+        event,
+        clip: "attention",
+        priority: 100,
+        speech: [event.speech ?? "♪"],
+      };
+    case "brain-dismiss":
+      return {
+        event,
+        clip: "idle-blink",
+        priority: 100,
+        speech: [],
+      };
+    case "brain-failed":
+      return {
+        event,
+        clip: "stumble",
+        priority: 100,
+        speech: ["My thoughts got tangled…"],
       };
     case "clicked":
       return {
@@ -259,6 +302,14 @@ export class CompanionController {
   }
 
   dispatch(event: MikuEvent): boolean {
+    if (event.type === "brain-dismiss") {
+      this.reactionQueue = [];
+      this.reactionPriority = 0;
+      this.bubbleText = null;
+      this.bubbleRemaining = 0;
+      if (this.mode !== "dragging") this.startIdle(900);
+      return true;
+    }
     const lastAt = this.lastEventAt.get(event.type);
     if (lastAt !== undefined && this.clock - lastAt < EVENT_COOLDOWNS[event.type]) {
       return false;
@@ -352,9 +403,15 @@ export class CompanionController {
     this.mode = "reacting";
     this.reactionPriority = reaction.priority;
     this.setClip(reaction.clip);
-    this.stateRemaining = clipDuration(reaction.clip);
+    this.stateRemaining =
+      reaction.event.type === "brain-thinking"
+        ? 120_000
+        : clipDuration(reaction.clip);
     this.bubbleText = this.pick(reaction.speech);
-    this.bubbleRemaining = clamp(1_900 + this.bubbleText.length * 52, 2_400, 4_600);
+    this.bubbleRemaining =
+      reaction.event.type === "brain-thinking"
+        ? 120_000
+        : clamp(1_900 + this.bubbleText.length * 52, 2_400, 7_000);
   }
 
   private finishReaction(): void {

@@ -179,3 +179,67 @@
     right: 56px;
   }
 }
+
+.miku-settings {
+  display: grid;
+  gap: 14px;
+  max-width: 620px;
+}
+
+.miku-settings-field {
+  display: grid;
+  gap: 7px;
+}
+
+.miku-settings-label {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.miku-settings select {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--background);
+  font: inherit;
+}
+
+.miku-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.miku-settings-actions button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--secondary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.miku-settings-actions button:disabled,
+.miku-settings select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.miku-settings-note,
+.miku-settings-error {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.miku-settings-error {
+  color: var(--destructive);
+}

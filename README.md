@@ -1,13 +1,20 @@
 # Miku Companion for BB
 
 A small Hatsune Miku roams around every BB screen using the app-wide
-`experimental_appOverlay` plugin API. She alternates idle animations, reacts
-to BB and Tasks events, and says a few words in a speech bubble.
+`experimental_appOverlay` plugin API. She alternates idle animations and can
+use a dedicated hidden BB thread to comment on real activity in the app.
 
 - Uses the supplied pixel-art sprite sheet and removes its blue matte at runtime.
 - Walks toward two-dimensional waypoints and pauses for varied idle loops.
 - Reacts to thread activity, completion, failures, queued messages, questions,
   archived threads, task completion, and clicks.
+- Batches activity for one second and steers later batches into an active
+  hidden-thread response.
+- Shows `…` while her agent is thinking, then speaks the agent's bounded
+  one-line response.
+- Supports autonomous periodic check-ins, with a configurable interval.
+- Lets you choose the brain project, hidden thread, provider, model, service
+  tier, and reasoning level from the plugin settings page.
 - Uses prioritized reaction and speech queues so important events win.
 - Can be dragged out of the way; she flails while carried and lands on release.
 - Turns without resetting her animation clock or interrupting her stride.
@@ -37,6 +44,17 @@ bb plugin install .
 
 The sprite is served by the plugin's local authenticated HTTP route. Disabling,
 reloading, or uninstalling the plugin cleanly removes the overlay.
+
+## Agent-powered comments
+
+Open **Settings → Extensions → Miku Companion**. Choose a Brain project,
+select the provider/model/thinking combination, and create a hidden brain
+thread. Then enable **Agent-powered comments**. Set the autonomous interval to
+`0` if Miku should only respond to app events.
+
+When no brain is enabled or selected, Miku keeps using her built-in scripted
+reactions. Hidden brain threads stay out of the sidebar but can be opened from
+the Miku settings page for inspection.
 
 ## Animation test bench
 

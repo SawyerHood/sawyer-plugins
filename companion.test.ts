@@ -109,6 +109,24 @@ describe("CompanionController", () => {
     expect(current.y).toBe(initial.y);
     expect(current.bubble).not.toBeNull();
   });
+
+  it("holds a thinking bubble until the brain responds", () => {
+    const controller = new CompanionController(
+      { xRatio: 0.5, yRatio: 0.5, direction: 1 },
+      () => 0,
+    );
+    controller.setBounds({ minX: 0, maxX: 400, minY: 0, maxY: 300 });
+
+    controller.dispatch(event("brain-thinking"));
+    for (let index = 0; index < 30; index += 1) controller.tick(64, false);
+    expect(controller.tick(0, false).bubble).toBe("…");
+
+    controller.dispatch({
+      ...event("brain-comment"),
+      speech: "The tests are sparkling! ♪",
+    });
+    expect(controller.tick(0, false).bubble).toBe("The tests are sparkling! ♪");
+  });
 });
 
 describe("isMikuEvent", () => {

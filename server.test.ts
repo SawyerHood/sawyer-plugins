@@ -8,9 +8,10 @@ import plugin from "./server";
 describe("Miku server bridge", () => {
   it("registers lifecycle listeners and the optional Tasks watcher", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "miku" });
-    plugin(bb);
+    await plugin(bb);
 
     expect(harness.registrations.services.map((service) => service.name)).toEqual([
+      "brain",
       "task-events",
     ]);
     expect(harness.registrations.threadEventHandlers).toMatchObject({
@@ -19,6 +20,7 @@ describe("Miku server bridge", () => {
       "thread.idle": 1,
       "thread.failed": 1,
       "thread.archived": 1,
+      "thread.deleted": 1,
       "interaction.pending": 1,
       "message.queued": 1,
       "message.dispatched": 1,
@@ -30,7 +32,7 @@ describe("Miku server bridge", () => {
 
   it("publishes a scoped companion event after a thread completes", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "miku" });
-    plugin(bb);
+    await plugin(bb);
 
     await harness.emitThreadEvent("thread.idle", {
       thread: makeThreadResponse({ id: "thr_done", projectId: "proj_demo" }),
@@ -51,12 +53,64 @@ describe("Miku server bridge", () => {
 
   it("serves the animation test bench with local auth", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "miku" });
-    plugin(bb);
+    await plugin(bb);
 
     const response = await harness.fetchHttp("GET", "/test-bench");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
     expect(await response.text()).toContain("Miku animation test bench");
+
+    await harness.dispose();
+  });
+
+  it("creates a provider-configured hidden brain thread", async () => {
+    const brainThread = makeThreadResponse({
+      id: "thr_brain",
+      projectId: "proj_demo",
+      providerId: "codex",
+      title: "Miku's hidden brain",
+      visibility: "hidden",
+      originPluginId: "miku",
+      status: "idle",
+    });
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "miku",
+      settings: { brainProject: "proj_demo" },
+      sdk: {
+        threads: {
+          spawn: async () => brainThread,
+          wait: async () => ({
+            matched: true,
+            target: { kind: "status", status: "idle" },
+            thread: brainThread,
+            threadId: brainThread.id,
+          }),
+          stop: async () => ({ ok: true }),
+        },
+      },
+    });
+    await plugin(bb);
+
+    const result = await harness.behavior.callRpc("brain.create", {
+      projectId: "proj_demo",
+      selection: {
+        providerId: "codex",
+        model: "gpt-5.6-sol",
+        reasoningLevel: "high",
+        serviceTier: "fast",
+      },
+    });
+
+    expect(result).toMatchObject({ thread: { id: "thr_brain" } });
+    expect(harness.inspection.sdk.callsTo("threads.spawn")[0]?.[0]).toMatchObject({
+      projectId: "proj_demo",
+      providerId: "codex",
+      model: "gpt-5.6-sol",
+      reasoningLevel: "high",
+      serviceTier: "fast",
+      visibility: "hidden",
+    });
+    expect(harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(1);
 
     await harness.dispose();
   });

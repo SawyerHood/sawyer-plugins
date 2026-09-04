@@ -6,9 +6,16 @@ import {
 } from "react";
 import {
   definePluginApp,
+  experimental_ProviderModelPicker as ProviderModelPicker,
   useBbContext,
+  useBbNavigate,
   useRealtime,
+  useRpc,
+  useSettings,
+  type ExperimentalProviderModelPickerValue,
 } from "@get-bb/plugin-sdk/app";
+import type { BrainSelection } from "./brain-contract";
+import type { brainRpcContract } from "./brain-contract";
 import {
   CompanionController,
   isMikuEvent,
@@ -28,6 +35,191 @@ const EDGE_INSET_PX = 12;
 const BUBBLE_SAFE_TOP_PX = 62;
 const STORAGE_KEY = "bb-plugin-miku:position-v2";
 const LEGACY_STORAGE_KEY = "bb-plugin-miku:position";
+
+interface BrainThreadOption {
+  id: string;
+  projectId: string;
+  providerId: string;
+  title: string;
+  status: string;
+}
+
+interface BrainSetup {
+  threadId: string | null;
+  selection: BrainSelection;
+  threads: BrainThreadOption[];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function BrainSettings() {
+  const rpc = useRpc<typeof brainRpcContract>();
+  const settings = useSettings();
+  const navigate = useBbNavigate();
+  const projectId =
+    typeof settings.values?.brainProject === "string"
+      ? settings.values.brainProject
+      : null;
+  const enabled = settings.values?.brainEnabled === true;
+  const [setup, setSetup] = useState<BrainSetup | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    void rpc
+      .call("brain.get", { projectId })
+      .then((result) => {
+        if (!cancelled) setSetup(result);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(errorMessage(reason));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, rpc]);
+
+  const configure = (value: ExperimentalProviderModelPickerValue) => {
+    if (setup === null) return;
+    const selection: BrainSelection = {
+      providerId: value.providerId,
+      model: value.model,
+      reasoningLevel: value.reasoningLevel,
+      serviceTier: value.serviceTier ?? null,
+    };
+    const providerChanged = selection.providerId !== setup.selection.providerId;
+    setSetup({
+      ...setup,
+      threadId: providerChanged ? null : setup.threadId,
+      selection,
+    });
+    setError(null);
+    void rpc.call("brain.configure", selection).catch((reason: unknown) => {
+      setError(errorMessage(reason));
+    });
+  };
+
+  const selectThread = async (threadId: string) => {
+    if (setup === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await rpc.call("brain.select", {
+        threadId: threadId === "" ? null : threadId,
+      });
+      const thread = setup.threads.find((candidate) => candidate.id === result.threadId);
+      setSetup({
+        ...setup,
+        threadId: result.threadId,
+        selection:
+          thread === undefined
+            ? setup.selection
+            : { ...setup.selection, providerId: thread.providerId },
+      });
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createBrain = async () => {
+    if (setup === null || projectId === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { thread } = await rpc.call("brain.create", {
+        projectId,
+        selection: setup.selection,
+      });
+      setSetup({
+        ...setup,
+        threadId: thread.id,
+        threads: [thread, ...setup.threads.filter((item) => item.id !== thread.id)],
+      });
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (setup === null) {
+    return <p className="miku-settings-note">Loading Miku’s brain settings…</p>;
+  }
+
+  const pickerValue: ExperimentalProviderModelPickerValue = {
+    providerId: setup.selection.providerId,
+    model: setup.selection.model,
+    reasoningLevel: setup.selection.reasoningLevel,
+    ...(setup.selection.serviceTier === null
+      ? {}
+      : { serviceTier: setup.selection.serviceTier }),
+  };
+
+  return (
+    <div className="miku-settings">
+      <div className="miku-settings-field">
+        <span className="miku-settings-label">Provider, model, and thinking</span>
+        <ProviderModelPicker
+          value={pickerValue}
+          onChange={configure}
+          align="start"
+          disabled={busy}
+        />
+      </div>
+      <label className="miku-settings-field">
+        <span className="miku-settings-label">Hidden brain thread</span>
+        <select
+          value={setup.threadId ?? ""}
+          disabled={busy || projectId === null}
+          onChange={(event) => void selectThread(event.currentTarget.value)}
+        >
+          <option value="">No agent brain (use scripted reactions)</option>
+          {setup.threads.map((thread) => (
+            <option key={thread.id} value={thread.id}>
+              {thread.title} · {thread.providerId} · {thread.status}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="miku-settings-actions">
+        <button
+          type="button"
+          disabled={busy || projectId === null}
+          onClick={() => void createBrain()}
+        >
+          {busy ? "Preparing…" : "Create a new hidden brain"}
+        </button>
+        {setup.threadId !== null ? (
+          <button type="button" onClick={() => navigate.toThread(setup.threadId!)}>
+            Open brain thread
+          </button>
+        ) : null}
+      </div>
+      {projectId === null ? (
+        <p className="miku-settings-note">Choose a Brain project above first.</p>
+      ) : !enabled ? (
+        <p className="miku-settings-note">
+          Turn on Agent-powered comments above when the brain is ready.
+        </p>
+      ) : setup.threadId === null ? (
+        <p className="miku-settings-note">
+          Create or select a hidden thread to replace scripted comments.
+        </p>
+      ) : (
+        <p className="miku-settings-note">
+          Activity is batched for one second; later batches steer the active response.
+        </p>
+      )}
+      {error === null ? null : <p className="miku-settings-error">{error}</p>}
+    </div>
+  );
+}
 
 function readSavedPosition(): SavedCompanionPosition {
   try {
@@ -352,6 +544,12 @@ function MikuOverlay() {
 }
 
 export default definePluginApp((app) => {
+  app.slots.settingsSection({
+    id: "brain",
+    title: "Miku’s brain",
+    description: "Choose the hidden thread and execution settings that power her comments.",
+    component: BrainSettings,
+  });
   app.slots.experimental_appOverlay({
     id: "walking-miku",
     component: MikuOverlay,

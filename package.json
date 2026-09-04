@@ -1,7 +1,7 @@
 {
   "name": "bb-plugin-miku",
-  "version": "0.3.1",
-  "description": "An event-aware Hatsune Miku companion for BB.",
+  "version": "0.4.0",
+  "description": "An agent-powered Hatsune Miku companion for BB.",
   "author": "Sawyer Hood",
   "repository": {
     "type": "git",
@@ -12,11 +12,11 @@
   "private": true,
   "engines": {
     "bb": ">=0.41",
-    "bbPluginSdk": ">=0.4.40"
+    "bbPluginSdk": ">=0.4.45"
   },
   "bb": {
     "name": "Miku Companion",
-    "description": "An event-aware Hatsune Miku companion that roams around BB.",
+    "description": "An agent-powered Hatsune Miku companion that observes and comments on activity across BB.",
     "branding": {
       "icon": "Sparkles"
     },
@@ -28,6 +28,9 @@
     "build": "bb plugin build .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@get-bb/plugin-sdk": "0.4.40",
@@ -54,7 +57,6 @@
     "tailwind-merge": "^3.4.0",
     "typescript": "^5.7.0",
     "vaul": "^1.1.2",
-    "vitest": "^3.2.7",
-    "zod": "^4.5.4"
+    "vitest": "^3.2.7"
   }
 }
