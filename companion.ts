@@ -68,7 +68,9 @@ interface Reaction {
 }
 
 const WALK_SPEED_PX_PER_SECOND = 58;
-const MAX_REACTION_QUEUE = 3;
+const MAX_REACTION_QUEUE = 6;
+const MIN_SPEECH_DURATION_MS = 5_000;
+const MAX_SPEECH_DURATION_MS = 10_000;
 const IDLE_CLIPS: readonly ClipId[] = [
   "idle-blink",
   "idle-blink",
@@ -251,7 +253,7 @@ export class CompanionController {
   private stateRemaining = 0;
   private bubbleText: string | null = null;
   private bubbleRemaining = 0;
-  private reactionPriority = 0;
+  private activeReactionType: MikuEventType | null = null;
   private reactionQueue: Reaction[] = [];
   private idleBag: ClipId[] = [];
   private lastIdleClip: ClipId | null = null;
@@ -303,11 +305,15 @@ export class CompanionController {
 
   dispatch(event: MikuEvent): boolean {
     if (event.type === "brain-dismiss") {
-      this.reactionQueue = [];
-      this.reactionPriority = 0;
-      this.bubbleText = null;
-      this.bubbleRemaining = 0;
-      if (this.mode !== "dragging") this.startIdle(900);
+      this.reactionQueue = this.reactionQueue.filter(
+        (reaction) => reaction.event.type !== "brain-thinking",
+      );
+      if (this.activeReactionType === "brain-thinking") {
+        this.activeReactionType = null;
+        this.bubbleText = null;
+        this.bubbleRemaining = 0;
+        if (this.mode !== "dragging") this.finishReaction();
+      }
       return true;
     }
     const lastAt = this.lastEventAt.get(event.type);
@@ -317,24 +323,40 @@ export class CompanionController {
     this.lastEventAt.set(event.type, this.clock);
     const reaction = reactionFor(event);
 
-    if (this.mode !== "reacting" || reaction.priority >= this.reactionPriority) {
+    if (event.type === "brain-comment" || event.type === "brain-failed") {
+      this.reactionQueue = this.reactionQueue.filter(
+        (queued) => queued.event.type !== "brain-thinking",
+      );
+    }
+
+    const thinkingIsActive = this.activeReactionType === "brain-thinking";
+    const shouldReplaceThinking =
+      thinkingIsActive &&
+      event.type !== "brain-thinking" &&
+      this.mode !== "dragging";
+    if (shouldReplaceThinking || (this.mode !== "reacting" && this.mode !== "dragging")) {
       this.startReaction(reaction);
       return true;
     }
 
+    if (
+      event.type === "brain-thinking" &&
+      (thinkingIsActive ||
+        this.reactionQueue.some(
+          (queued) => queued.event.type === "brain-thinking",
+        ))
+    ) {
+      return false;
+    }
+
+    if (this.reactionQueue.length >= MAX_REACTION_QUEUE) return false;
     this.reactionQueue.push(reaction);
-    this.reactionQueue.sort((left, right) => right.priority - left.priority);
-    this.reactionQueue = this.reactionQueue.slice(0, MAX_REACTION_QUEUE);
     return true;
   }
 
   startDrag(): void {
     this.mode = "dragging";
     this.target = null;
-    this.reactionQueue = [];
-    this.reactionPriority = 0;
-    this.bubbleText = null;
-    this.bubbleRemaining = 0;
     this.setClip("carried");
   }
 
@@ -347,9 +369,21 @@ export class CompanionController {
   endDrag(): void {
     if (this.mode !== "dragging") return;
     this.mode = "reacting";
-    this.reactionPriority = 0;
     this.setClip("landing");
-    this.stateRemaining = clipDuration("landing");
+    const landingDuration = clipDuration("landing");
+    const brainResponseIsWaiting =
+      this.activeReactionType === "brain-thinking" &&
+      this.reactionQueue.some(
+        (reaction) =>
+          reaction.event.type === "brain-comment" ||
+          reaction.event.type === "brain-failed",
+      );
+    this.stateRemaining = brainResponseIsWaiting
+      ? landingDuration
+      : Math.max(landingDuration, this.bubbleRemaining);
+    if (brainResponseIsWaiting) {
+      this.bubbleRemaining = Math.min(this.bubbleRemaining, landingDuration);
+    }
   }
 
   tick(elapsedMs: number, reducedMotion: boolean): CompanionSnapshot {
@@ -401,26 +435,30 @@ export class CompanionController {
 
   private startReaction(reaction: Reaction): void {
     this.mode = "reacting";
-    this.reactionPriority = reaction.priority;
+    this.activeReactionType = reaction.event.type;
     this.setClip(reaction.clip);
-    this.stateRemaining =
-      reaction.event.type === "brain-thinking"
-        ? 120_000
-        : clipDuration(reaction.clip);
     this.bubbleText = this.pick(reaction.speech);
-    this.bubbleRemaining =
+    const speechDuration =
       reaction.event.type === "brain-thinking"
         ? 120_000
-        : clamp(1_900 + this.bubbleText.length * 52, 2_400, 7_000);
+        : clamp(
+            4_300 + this.bubbleText.length * 62,
+            MIN_SPEECH_DURATION_MS,
+            MAX_SPEECH_DURATION_MS,
+          );
+    this.bubbleRemaining = speechDuration;
+    this.stateRemaining = Math.max(clipDuration(reaction.clip), speechDuration);
   }
 
   private finishReaction(): void {
+    this.activeReactionType = null;
+    this.bubbleText = null;
+    this.bubbleRemaining = 0;
     const next = this.reactionQueue.shift();
     if (next !== undefined) {
       this.startReaction(next);
       return;
     }
-    this.reactionPriority = 0;
     this.startIdle(900 + this.random() * 900);
   }
 

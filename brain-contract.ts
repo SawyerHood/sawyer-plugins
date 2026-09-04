@@ -18,6 +18,7 @@ export const brainSelectionSchema = z
     model: z.string().min(1),
     reasoningLevel: reasoningLevelSchema,
     serviceTier: z.enum(["default", "fast"]).nullable(),
+    permissionMode: z.enum(["accept-edits", "auto", "full"]).default("auto"),
   })
   .strict();
 

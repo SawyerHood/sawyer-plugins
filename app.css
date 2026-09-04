@@ -86,7 +86,8 @@
 .miku-bubble {
   position: absolute;
   z-index: 2;
-  top: -22px;
+  top: var(--miku-bubble-top, -22px);
+  left: var(--miku-bubble-left, 69px);
   display: block;
   width: max-content;
   min-width: 132px;
@@ -119,22 +120,7 @@
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, #00d8c8 28%);
   background: color-mix(in srgb, var(--popover) 94%, #d9fffa 6%);
   transform: rotate(45deg);
-}
-
-.miku-companion[data-bubble-side="right"] .miku-bubble {
-  left: 69px;
-}
-
-.miku-companion[data-bubble-side="right"] .miku-bubble::after {
-  left: 17px;
-}
-
-.miku-companion[data-bubble-side="left"] .miku-bubble {
-  right: 69px;
-}
-
-.miku-companion[data-bubble-side="left"] .miku-bubble::after {
-  right: 17px;
+  left: var(--miku-bubble-arrow-left, 17px);
 }
 
 .miku-bubble[data-visible="true"] {
@@ -171,13 +157,6 @@
     width: 50px;
   }
 
-  .miku-companion[data-bubble-side="right"] .miku-bubble {
-    left: 56px;
-  }
-
-  .miku-companion[data-bubble-side="left"] .miku-bubble {
-    right: 56px;
-  }
 }
 
 .miku-settings {

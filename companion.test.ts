@@ -46,7 +46,7 @@ describe("CompanionController", () => {
     expect(later.frame).not.toBe(firstFrame);
   });
 
-  it("lets a failure interrupt a lower-priority reaction", () => {
+  it("queues new speech without replacing the message currently on screen", () => {
     const controller = new CompanionController(
       { xRatio: 0.5, yRatio: 0.5, direction: 1 },
       () => 0,
@@ -55,11 +55,14 @@ describe("CompanionController", () => {
 
     expect(controller.dispatch(event("thread-active"))).toBe(true);
     expect(controller.dispatch(event("thread-failed"))).toBe(true);
-    const snapshot = controller.tick(0, false);
+    const initial = controller.tick(0, false);
 
-    expect(snapshot.mode).toBe("reacting");
-    expect(snapshot.bubble).toBe("Oof… let’s try that again.");
-    expect(snapshot.frame.y).toBe(370);
+    expect(initial.mode).toBe("reacting");
+    expect(initial.bubble).toBe("Let’s do this! ♪");
+    for (let index = 0; index < 64; index += 1) controller.tick(64, false);
+    expect(controller.tick(0, false).bubble).toBe("Let’s do this! ♪");
+    for (let index = 0; index < 40; index += 1) controller.tick(64, false);
+    expect(controller.tick(0, false).bubble).toBe("Oof… let’s try that again.");
   });
 
   it("deduplicates event bursts with per-event cooldowns", () => {
@@ -94,6 +97,44 @@ describe("CompanionController", () => {
     expect(controller.tick(0, false).mode).toBe("idle");
   });
 
+  it("keeps an active speech bubble visible while Miku is dragged", () => {
+    const controller = new CompanionController(
+      { xRatio: 0.5, yRatio: 0.5, direction: 1 },
+      () => 0,
+    );
+    controller.setBounds({ minX: 10, maxX: 300, minY: 40, maxY: 220 });
+    controller.dispatch(event("clicked"));
+    const message = controller.tick(0, false).bubble;
+
+    controller.startDrag();
+    controller.dragTo(10, 40);
+    expect(controller.tick(250, false).bubble).toBe(message);
+    controller.endDrag();
+    expect(controller.tick(250, false).bubble).toBe(message);
+  });
+
+  it("queues a brain response without interrupting an active drag", () => {
+    const controller = new CompanionController(
+      { xRatio: 0.5, yRatio: 0.5, direction: 1 },
+      () => 0,
+    );
+    controller.setBounds({ minX: 10, maxX: 300, minY: 40, maxY: 220 });
+    controller.dispatch(event("brain-thinking"));
+    controller.startDrag();
+    controller.dispatch({
+      ...event("brain-comment"),
+      speech: "I finished thinking!",
+    });
+
+    expect(controller.tick(0, false)).toMatchObject({
+      mode: "dragging",
+      bubble: "…",
+    });
+    controller.endDrag();
+    for (let index = 0; index < 11; index += 1) controller.tick(64, false);
+    expect(controller.tick(0, false).bubble).toBe("I finished thinking!");
+  });
+
   it("stays in place when reduced motion is requested but still speaks", () => {
     const controller = new CompanionController(
       { xRatio: 0.25, yRatio: 0.75, direction: 1 },
@@ -126,6 +167,27 @@ describe("CompanionController", () => {
       speech: "The tests are sparkling! ♪",
     });
     expect(controller.tick(0, false).bubble).toBe("The tests are sparkling! ♪");
+  });
+
+  it("never replaces visible speech with a pending thinking indicator", () => {
+    const controller = new CompanionController(
+      { xRatio: 0.5, yRatio: 0.5, direction: 1 },
+      () => 0,
+    );
+    controller.setBounds({ minX: 0, maxX: 400, minY: 0, maxY: 300 });
+
+    controller.dispatch(event("thread-idle"));
+    const visibleMessage = controller.tick(0, false).bubble;
+    controller.dispatch(event("brain-thinking"));
+    expect(controller.tick(0, false).bubble).toBe(visibleMessage);
+
+    controller.dispatch({
+      ...event("brain-comment"),
+      speech: "I saw that finish—nice work!",
+    });
+    expect(controller.tick(0, false).bubble).toBe(visibleMessage);
+    for (let index = 0; index < 110; index += 1) controller.tick(64, false);
+    expect(controller.tick(0, false).bubble).toBe("I saw that finish—nice work!");
   });
 });
 

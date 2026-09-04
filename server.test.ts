@@ -98,6 +98,7 @@ describe("Miku server bridge", () => {
         model: "gpt-5.6-sol",
         reasoningLevel: "high",
         serviceTier: "fast",
+        permissionMode: "full",
       },
     });
 
@@ -108,6 +109,7 @@ describe("Miku server bridge", () => {
       model: "gpt-5.6-sol",
       reasoningLevel: "high",
       serviceTier: "fast",
+      permissionMode: "full",
       visibility: "hidden",
     });
     expect(harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(1);

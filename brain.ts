@@ -20,6 +20,7 @@ export const DEFAULT_BRAIN_SELECTION: BrainSelection = {
   model: "gpt-5.6-sol",
   reasoningLevel: "low",
   serviceTier: "default",
+  permissionMode: "auto",
 };
 
 const BATCH_WINDOW_MS = 1_000;
@@ -163,6 +164,7 @@ export class MikuBrainCoordinator {
     return {
       model: config.model,
       reasoningLevel: config.reasoningLevel,
+      permissionMode: config.permissionMode,
       ...(config.serviceTier === null ? {} : { serviceTier: config.serviceTier }),
     };
   }

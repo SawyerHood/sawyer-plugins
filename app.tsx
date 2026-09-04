@@ -6,6 +6,7 @@ import {
 } from "react";
 import {
   definePluginApp,
+  experimental_PermissionModePicker as PermissionModePicker,
   experimental_ProviderModelPicker as ProviderModelPicker,
   useBbContext,
   useBbNavigate,
@@ -16,6 +17,7 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import type { BrainSelection } from "./brain-contract";
 import type { brainRpcContract } from "./brain-contract";
+import { calculateBubbleLayout } from "./bubble-layout";
 import {
   CompanionController,
   isMikuEvent,
@@ -33,6 +35,8 @@ import "./app.css";
 const ASSET_URL = "/api/v1/plugins/miku/http/assets/miku.png";
 const EDGE_INSET_PX = 12;
 const BUBBLE_SAFE_TOP_PX = 62;
+const BUBBLE_VIEWPORT_MARGIN_PX = 10;
+const BUBBLE_ANCHOR_Y_PX = 24;
 const STORAGE_KEY = "bb-plugin-miku:position-v2";
 const LEGACY_STORAGE_KEY = "bb-plugin-miku:position";
 
@@ -83,14 +87,8 @@ function BrainSettings() {
     };
   }, [projectId, rpc]);
 
-  const configure = (value: ExperimentalProviderModelPickerValue) => {
+  const saveSelection = (selection: BrainSelection) => {
     if (setup === null) return;
-    const selection: BrainSelection = {
-      providerId: value.providerId,
-      model: value.model,
-      reasoningLevel: value.reasoningLevel,
-      serviceTier: value.serviceTier ?? null,
-    };
     const providerChanged = selection.providerId !== setup.selection.providerId;
     setSetup({
       ...setup,
@@ -100,6 +98,17 @@ function BrainSettings() {
     setError(null);
     void rpc.call("brain.configure", selection).catch((reason: unknown) => {
       setError(errorMessage(reason));
+    });
+  };
+
+  const configureProvider = (value: ExperimentalProviderModelPickerValue) => {
+    if (setup === null) return;
+    saveSelection({
+      providerId: value.providerId,
+      model: value.model,
+      reasoningLevel: value.reasoningLevel,
+      serviceTier: value.serviceTier ?? null,
+      permissionMode: setup.selection.permissionMode,
     });
   };
 
@@ -167,7 +176,19 @@ function BrainSettings() {
         <span className="miku-settings-label">Provider, model, and thinking</span>
         <ProviderModelPicker
           value={pickerValue}
-          onChange={configure}
+          onChange={configureProvider}
+          align="start"
+          disabled={busy}
+        />
+      </div>
+      <div className="miku-settings-field">
+        <span className="miku-settings-label">Permission mode</span>
+        <PermissionModePicker
+          providerId={setup.selection.providerId}
+          value={setup.selection.permissionMode}
+          onChange={(permissionMode) =>
+            saveSelection({ ...setup.selection, permissionMode })
+          }
           align="start"
           disabled={busy}
         />
@@ -402,18 +423,47 @@ function MikuOverlay() {
       lastFrame = frame;
     };
 
+    const positionBubble = (x: number, y: number) => {
+      const bubbleWidth = bubble.offsetWidth;
+      const bubbleHeight = bubble.offsetHeight;
+      if (bubbleWidth === 0 || bubbleHeight === 0) return;
+
+      const layout = calculateBubbleLayout({
+        companionX: x,
+        companionY: y,
+        companionWidth: walker.offsetWidth,
+        bubbleWidth,
+        bubbleHeight,
+        viewportWidth: window.innerWidth,
+        viewportMargin: BUBBLE_VIEWPORT_MARGIN_PX,
+        anchorY: BUBBLE_ANCHOR_Y_PX,
+      });
+
+      bubble.style.setProperty(
+        "--miku-bubble-left",
+        `${Math.round(layout.localLeft)}px`,
+      );
+      bubble.style.setProperty(
+        "--miku-bubble-top",
+        `${Math.round(layout.localTop)}px`,
+      );
+      bubble.style.setProperty(
+        "--miku-bubble-arrow-left",
+        `${Math.round(layout.arrowLeft)}px`,
+      );
+    };
+
     const render = (elapsed: number) => {
       const snapshot = controller.tick(elapsed, reducedMotion.matches);
       walker.style.transform = `translate3d(${Math.round(snapshot.x)}px, ${Math.round(snapshot.y)}px, 0)`;
       walker.dataset.mode = snapshot.mode;
-      walker.dataset.bubbleSide =
-        snapshot.x + walker.offsetWidth / 2 > window.innerWidth / 2 ? "left" : "right";
       sprite.dataset.direction = snapshot.direction === 1 ? "right" : "left";
       if (snapshot.bubble !== lastBubble) {
         bubble.textContent = snapshot.bubble ?? "";
         bubble.dataset.visible = snapshot.bubble === null ? "false" : "true";
         lastBubble = snapshot.bubble;
       }
+      if (snapshot.bubble !== null) positionBubble(snapshot.x, snapshot.y);
       draw(snapshot.frame);
     };
 
@@ -526,7 +576,6 @@ function MikuOverlay() {
         type="button"
         aria-label="Hatsune Miku is exploring the app. Say hello."
         title="Say hi to Miku"
-        data-bubble-side="right"
         onClick={greet}
         onPointerCancel={cancelDrag}
         onPointerDown={startDrag}

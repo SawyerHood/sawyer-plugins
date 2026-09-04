@@ -12,9 +12,14 @@ use a dedicated hidden BB thread to comment on real activity in the app.
   hidden-thread response.
 - Shows `…` while her agent is thinking, then speaks the agent's bounded
   one-line response.
+- Keeps speech visible for 5–10 seconds and queues later messages without
+  replacing the one already on screen; pending `…` indicators are discarded
+  when the real response is ready.
+- Measures and clamps each bubble to the viewport, including long wrapped text
+  and positions near the screen edges.
 - Supports autonomous periodic check-ins, with a configurable interval.
 - Lets you choose the brain project, hidden thread, provider, model, service
-  tier, and reasoning level from the plugin settings page.
+  tier, reasoning level, and permission mode from the plugin settings page.
 - Uses prioritized reaction and speech queues so important events win.
 - Can be dragged out of the way; she flails while carried and lands on release.
 - Turns without resetting her animation clock or interrupting her stride.

@@ -204,7 +204,7 @@ export default async function plugin(bb: BbPluginApi) {
         prompt: BRAIN_INTRO_PROMPT,
         title: "Miku's hidden brain",
         visibility: "hidden",
-        permissionMode: "auto",
+        permissionMode: selection.permissionMode,
         providerId: selection.providerId,
         model: selection.model,
         reasoningLevel: selection.reasoningLevel,
