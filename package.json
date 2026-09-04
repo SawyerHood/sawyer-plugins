@@ -1,7 +1,7 @@
 {
   "name": "bb-plugin-miku",
-  "version": "0.3.0",
-  "description": "An event-aware Hatsune Miku companion and full BB app theme.",
+  "version": "0.3.1",
+  "description": "An event-aware Hatsune Miku companion for BB.",
   "author": "Sawyer Hood",
   "repository": {
     "type": "git",
@@ -16,25 +16,13 @@
   },
   "bb": {
     "name": "Miku Companion",
-    "description": "An event-aware Hatsune Miku companion that roams BB with a full turquoise-and-pink app theme.",
+    "description": "An event-aware Hatsune Miku companion that roams around BB.",
     "branding": {
       "icon": "Sparkles"
     },
     "server": "./server.ts",
     "app": "./app.tsx",
-    "skills": [],
-    "themes": [
-      {
-        "id": "miku",
-        "name": "Miku",
-        "description": "Turquoise, cyan, charcoal, and pink inspired by Hatsune Miku.",
-        "css": "./themes/miku.css",
-        "codeTheme": {
-          "dark": "./themes/miku-dark.json",
-          "light": "./themes/miku-light.json"
-        }
-      }
-    ]
+    "skills": []
   },
   "scripts": {
     "build": "bb plugin build .",

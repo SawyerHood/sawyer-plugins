@@ -1,4 +1,9 @@
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   definePluginApp,
   useBbContext,
@@ -11,6 +16,11 @@ import {
   type SavedCompanionPosition,
 } from "./companion";
 import { CANVAS_HEIGHT, CANVAS_WIDTH, type SpriteFrame } from "./sprites";
+import {
+  readMikuVisibility,
+  subscribeToMikuVisibility,
+  toggleMikuVisibility,
+} from "./visibility";
 import "./app.css";
 
 const ASSET_URL = "/api/v1/plugins/miku/http/assets/miku.png";
@@ -114,6 +124,7 @@ function eventBelongsHere(event: MikuEvent, projectId: string | null): boolean {
 
 function MikuOverlay() {
   const { projectId } = useBbContext();
+  const [visible, setVisible] = useState(readMikuVisibility);
   const walkerRef = useRef<HTMLButtonElement>(null);
   const spriteRef = useRef<HTMLSpanElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -134,7 +145,11 @@ function MikuOverlay() {
     controllerRef.current?.dispatch(payload);
   });
 
+  useEffect(() => subscribeToMikuVisibility(setVisible), []);
+
   useEffect(() => {
+    if (!visible) return;
+
     const walker = walkerRef.current;
     const sprite = spriteRef.current;
     const canvas = canvasRef.current;
@@ -251,7 +266,7 @@ function MikuOverlay() {
       abortController.abort();
       window.cancelAnimationFrame(animationFrame);
     };
-  }, []);
+  }, [visible]);
 
   const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || controllerRef.current === null) return;
@@ -311,7 +326,7 @@ function MikuOverlay() {
     });
   };
 
-  return (
+  return visible ? (
     <div className="miku-overlay" aria-live="polite" aria-atomic="true">
       <button
         ref={walkerRef}
@@ -333,12 +348,19 @@ function MikuOverlay() {
         <span className="miku-shadow" aria-hidden="true" />
       </button>
     </div>
-  );
+  ) : null;
 }
 
 export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({
     id: "walking-miku",
     component: MikuOverlay,
+  });
+  app.slots.commandPaletteAction({
+    id: "toggle-miku-visibility",
+    title: "Miku: toggle companion visibility",
+    run: () => {
+      toggleMikuVisibility();
+    },
   });
 });

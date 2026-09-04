@@ -2,9 +2,7 @@
 
 A small Hatsune Miku roams around every BB screen using the app-wide
 `experimental_appOverlay` plugin API. She alternates idle animations, reacts
-to BB and Tasks events, and says a few words in a speech bubble. The plugin
-also contributes a complete Miku palette for BB's light and dark modes,
-including matching code and terminal colors.
+to BB and Tasks events, and says a few words in a speech bubble.
 
 - Uses the supplied pixel-art sprite sheet and removes its blue matte at runtime.
 - Walks toward two-dimensional waypoints and pauses for varied idle loops.
@@ -14,12 +12,12 @@ including matching code and terminal colors.
 - Can be dragged out of the way; she flails while carried and lands on release.
 - Turns without resetting her animation clock or interrupting her stride.
 - Remembers her two-dimensional position between reloads.
+- Can be persistently hidden or shown from the command palette with
+  `Mod+Shift+P` → **Miku: toggle companion visibility**.
 - Stops walking and uses static reaction poses when the operating system
   requests reduced motion.
 - Keeps the overlay click-through everywhere except Miku herself; click her to
   say hello.
-- Themes the full app in turquoise, cyan, blue-charcoal, mint, and pink.
-- Includes dedicated Miku Day and Miku Night syntax-highlighting themes.
 
 ## Install
 
@@ -27,7 +25,6 @@ Install directly from GitHub:
 
 ```sh
 bb plugin install git:https://github.com/SawyerHood/bb-plugin-miku.git
-bb theme set plugin:miku:miku --favicon-color teal
 ```
 
 Or install from a local checkout:
@@ -36,7 +33,6 @@ Or install from a local checkout:
 npm install
 npm run build
 bb plugin install .
-bb theme set plugin:miku:miku --favicon-color teal
 ```
 
 The sprite is served by the plugin's local authenticated HTTP route. Disabling,
