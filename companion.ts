@@ -259,6 +259,7 @@ export class CompanionController {
   private lastIdleClip: ClipId | null = null;
   private clock = 0;
   private initialized = false;
+  private walkingEnabled = true;
   private readonly initialPosition: SavedCompanionPosition;
   private readonly lastEventAt = new Map<MikuEventType, number>();
 
@@ -300,6 +301,14 @@ export class CompanionController {
     if (this.target !== null) {
       this.target.x = clamp(this.target.x, this.bounds.minX, this.bounds.maxX);
       this.target.y = clamp(this.target.y, this.bounds.minY, this.bounds.maxY);
+    }
+  }
+
+  setWalkingEnabled(enabled: boolean): void {
+    if (this.walkingEnabled === enabled) return;
+    this.walkingEnabled = enabled;
+    if (this.mode === "walking" || this.mode === "idle") {
+      this.startAmbient();
     }
   }
 
@@ -414,7 +423,7 @@ export class CompanionController {
       this.advancePosition(elapsed);
     } else if (!reducedMotion && this.mode === "idle") {
       this.stateRemaining -= elapsed;
-      if (this.stateRemaining <= 0) this.startWalking();
+      if (this.stateRemaining <= 0) this.startAmbient();
     }
 
     if (!reducedMotion) this.advanceFrame(elapsed);
@@ -475,7 +484,15 @@ export class CompanionController {
     if (finishedLanding) {
       this.startIdle(900 + this.random() * 900);
     } else {
+      this.startAmbient();
+    }
+  }
+
+  private startAmbient(): void {
+    if (this.walkingEnabled) {
       this.startWalking();
+    } else {
+      this.startIdle();
     }
   }
 

@@ -30,6 +30,35 @@ describe("CompanionController", () => {
     expect(current.mode).toBe("walking");
   });
 
+  it("keeps animating in place when walking is disabled and resumes on toggle", () => {
+    const controller = new CompanionController(
+      { xRatio: 0.5, yRatio: 0.5, direction: 1 },
+      sequenceRandom([0.9, 0.1, 0.7, 0.3]),
+    );
+    controller.setBounds({ minX: 0, maxX: 500, minY: 0, maxY: 400 });
+    const initial = controller.tick(0, false);
+    controller.setWalkingEnabled(false);
+
+    let stationary = controller.tick(0, false);
+    const stationaryFrame = stationary.frame;
+    for (let index = 0; index < 24; index += 1) {
+      stationary = controller.tick(64, false);
+    }
+
+    expect(stationary.mode).toBe("idle");
+    expect(stationary.x).toBe(initial.x);
+    expect(stationary.y).toBe(initial.y);
+    expect(stationary.frame).not.toBe(stationaryFrame);
+
+    controller.setWalkingEnabled(true);
+    let moving = controller.tick(0, false);
+    for (let index = 0; index < 12; index += 1) {
+      moving = controller.tick(64, false);
+    }
+    expect(moving.mode).toBe("walking");
+    expect(moving.x === initial.x && moving.y === initial.y).toBe(false);
+  });
+
   it("keeps advancing walk frames after changing direction", () => {
     const controller = new CompanionController(
       { xRatio: 0.8, yRatio: 0.5, direction: 1 },

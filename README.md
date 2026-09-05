@@ -29,6 +29,8 @@ use a dedicated hidden BB thread to comment on real activity in the app.
 - Remembers her two-dimensional position between reloads.
 - Can be persistently hidden or shown from the command palette with
   `Mod+Shift+P` → **Miku: toggle companion visibility**.
+- Can stop roaming while keeping her animations and reactions; toggle **Stay in
+  place** in settings or run **Miku: toggle walking** from the command palette.
 - Stops walking and uses static reaction poses when the operating system
   requests reduced motion.
 - Keeps the overlay click-through everywhere except Miku herself; click her to

@@ -34,6 +34,12 @@ import {
   subscribeToMikuVisibility,
   toggleMikuVisibility,
 } from "./visibility";
+import {
+  readMikuWalking,
+  setMikuWalking,
+  subscribeToMikuWalking,
+  toggleMikuWalking,
+} from "./movement";
 import "./app.css";
 
 const ASSET_URL = "/api/v1/plugins/miku/http/assets/miku.png";
@@ -246,6 +252,28 @@ function BrainSettings() {
   );
 }
 
+function BehaviorSettings() {
+  const [walking, setWalking] = useState(readMikuWalking);
+
+  useEffect(() => subscribeToMikuWalking(setWalking), []);
+
+  return (
+    <label className="miku-behavior-toggle">
+      <input
+        type="checkbox"
+        checked={!walking}
+        onChange={(event) => setMikuWalking(!event.currentTarget.checked)}
+      />
+      <span>
+        <strong>Stay in place</strong>
+        <small>
+          Keep idle animations, reactions, speech, and dragging without roaming.
+        </small>
+      </span>
+    </label>
+  );
+}
+
 function readSavedPosition(): SavedCompanionPosition {
   try {
     const value = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null") as
@@ -342,6 +370,7 @@ function eventBelongsHere(event: MikuEvent, projectId: string | null): boolean {
 function MikuOverlay() {
   const { projectId } = useBbContext();
   const [visible, setVisible] = useState(readMikuVisibility);
+  const [walking, setWalking] = useState(readMikuWalking);
   const walkerRef = useRef<HTMLButtonElement>(null);
   const spriteRef = useRef<HTMLSpanElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -363,6 +392,8 @@ function MikuOverlay() {
   });
 
   useEffect(() => subscribeToMikuVisibility(setVisible), []);
+  useEffect(() => subscribeToMikuWalking(setWalking), []);
+  useEffect(() => controllerRef.current?.setWalkingEnabled(walking), [walking]);
 
   useEffect(() => {
     if (!visible) return;
@@ -385,6 +416,7 @@ function MikuOverlay() {
     context.imageSmoothingEnabled = false;
 
     const controller = new CompanionController(readSavedPosition());
+    controller.setWalkingEnabled(walking);
     controllerRef.current = controller;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let animationFrame = 0;
@@ -608,6 +640,12 @@ function MikuOverlay() {
 
 export default definePluginApp((app) => {
   app.slots.settingsSection({
+    id: "behavior",
+    title: "Miku’s behavior",
+    description: "Choose whether Miku roams around this client.",
+    component: BehaviorSettings,
+  });
+  app.slots.settingsSection({
     id: "brain",
     title: "Miku’s brain",
     description: "Choose the hidden thread and execution settings that power her comments.",
@@ -622,6 +660,13 @@ export default definePluginApp((app) => {
     title: "Miku: toggle companion visibility",
     run: () => {
       toggleMikuVisibility();
+    },
+  });
+  app.slots.commandPaletteAction({
+    id: "toggle-miku-walking",
+    title: "Miku: toggle walking",
+    run: () => {
+      toggleMikuWalking();
     },
   });
 });

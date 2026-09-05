@@ -152,6 +152,33 @@
   max-width: 620px;
 }
 
+.miku-behavior-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 620px;
+  cursor: pointer;
+}
+
+.miku-behavior-toggle input {
+  margin-top: 3px;
+}
+
+.miku-behavior-toggle span {
+  display: grid;
+  gap: 3px;
+}
+
+.miku-behavior-toggle strong {
+  font-size: 13px;
+}
+
+.miku-behavior-toggle small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .miku-settings-field {
   display: grid;
   gap: 7px;
