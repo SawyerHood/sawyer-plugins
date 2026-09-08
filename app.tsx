@@ -40,6 +40,9 @@ import {
   subscribeToMikuWalking,
   toggleMikuWalking,
 } from "./movement";
+import { toast } from "sonner";
+import { readMikuVoice, setMikuVoice, subscribeToMikuVoice, toggleMikuVoice } from "./voice-preference";
+import { BrowserVoiceTransport, MikuVoicePlayer } from "./voice-player";
 import "./app.css";
 
 const ASSET_URL = "/api/v1/plugins/miku/http/assets/miku.png";
@@ -254,10 +257,13 @@ function BrainSettings() {
 
 function BehaviorSettings() {
   const [walking, setWalking] = useState(readMikuWalking);
+  const [voice, setVoice] = useState(readMikuVoice);
 
   useEffect(() => subscribeToMikuWalking(setWalking), []);
+  useEffect(() => subscribeToMikuVoice(setVoice), []);
 
   return (
+    <div className="miku-settings">
     <label className="miku-behavior-toggle">
       <input
         type="checkbox"
@@ -271,6 +277,15 @@ function BehaviorSettings() {
         </small>
       </span>
     </label>
+    <label className="miku-behavior-toggle">
+      <input type="checkbox" checked={voice}
+        onChange={(event) => setMikuVoice(event.currentTarget.checked)} />
+      <span><strong>Speak aloud</strong><small>
+        Bright &amp; musical voice (sample 05). Saved for this browser.
+        Click in BB once to allow audio. Muting keeps text bubbles.
+      </small></span>
+    </label>
+    </div>
   );
 }
 
@@ -418,6 +433,30 @@ function MikuOverlay() {
     const controller = new CompanionController(readSavedPosition());
     controller.setWalkingEnabled(walking);
     controllerRef.current = controller;
+    const voiceTransport = new BrowserVoiceTransport();
+    let voiceEnabled = readMikuVoice();
+    let voiceErrorShown = false;
+    const voicePlayer = new MikuVoicePlayer(voiceTransport,
+      (id, held) => controller.holdSpeech(id, held),
+      (error) => {
+        if (!voiceErrorShown) {
+          voiceErrorShown = true;
+          toast.error(errorMessage(error));
+        }
+      });
+    const updateVoice = () => voicePlayer.setEnabled(voiceEnabled && !document.hidden);
+    updateVoice();
+    const unsubscribeVoice = subscribeToMikuVoice((enabled) => {
+      voiceEnabled = enabled;
+      voiceErrorShown = false;
+      updateVoice();
+      if (enabled) voiceTransport.unlock();
+    });
+    const unlockVoice = () => { if (voiceEnabled) voiceTransport.unlock(); };
+    document.addEventListener("pointerdown", unlockVoice, { signal });
+    document.addEventListener("keydown", unlockVoice, { signal });
+    document.addEventListener("visibilitychange", updateVoice, { signal });
+    if (navigator.userActivation?.hasBeenActive) unlockVoice();
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let animationFrame = 0;
     let previousTime = 0;
@@ -499,6 +538,7 @@ function MikuOverlay() {
 
     const render = (elapsed: number) => {
       const snapshot = controller.tick(elapsed, reducedMotion.matches);
+      voicePlayer.sync(snapshot.speechId, snapshot.bubble);
       walker.style.transform = `translate3d(${Math.round(snapshot.x)}px, ${Math.round(snapshot.y)}px, 0)`;
       walker.dataset.mode = snapshot.mode;
       sprite.dataset.direction = snapshot.direction === 1 ? "right" : "left";
@@ -551,6 +591,9 @@ function MikuOverlay() {
     return () => {
       persistPosition(controller.savedPosition());
       controllerRef.current = null;
+      unsubscribeVoice();
+      voicePlayer.stop();
+      voiceTransport.dispose();
       abortController.abort();
       window.cancelAnimationFrame(animationFrame);
     };
@@ -642,7 +685,7 @@ export default definePluginApp((app) => {
   app.slots.settingsSection({
     id: "behavior",
     title: "Miku’s behavior",
-    description: "Choose whether Miku roams around this client.",
+    description: "Choose whether Miku roams and speaks aloud on this client.",
     component: BehaviorSettings,
   });
   app.slots.settingsSection({
@@ -660,6 +703,14 @@ export default definePluginApp((app) => {
     title: "Miku: toggle companion visibility",
     run: () => {
       toggleMikuVisibility();
+    },
+  });
+  app.slots.commandPaletteAction({
+    id: "toggle-miku-voice",
+    title: "Miku: toggle voice",
+    run: () => {
+      const enabled = toggleMikuVoice();
+      toast.success(enabled ? "Miku's voice is on" : "Miku's voice is muted");
     },
   });
   app.slots.commandPaletteAction({

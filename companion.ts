@@ -53,6 +53,7 @@ export interface CompanionSnapshot {
   frame: SpriteFrame;
   mode: "walking" | "idle" | "reacting" | "dragging";
   bubble: string | null;
+  speechId: number;
 }
 
 interface Point {
@@ -253,6 +254,8 @@ export class CompanionController {
   private stateRemaining = 0;
   private bubbleText: string | null = null;
   private bubbleRemaining = 0;
+  private speechId = 0;
+  private voiceHeldUntil = 0;
   private activeReactionType: MikuEventType | null = null;
   private reactionQueue: Reaction[] = [];
   private idleBag: ClipId[] = [];
@@ -310,6 +313,11 @@ export class CompanionController {
     if (this.mode === "walking" || this.mode === "idle") {
       this.startAmbient();
     }
+  }
+
+  holdSpeech(id: number, held: boolean): void {
+    if (id !== this.speechId || this.bubbleText === null) return;
+    this.voiceHeldUntil = held ? this.clock + 30_000 : 0;
   }
 
   dispatch(event: MikuEvent): boolean {
@@ -403,7 +411,9 @@ export class CompanionController {
     this.clock += elapsed;
 
     if (this.bubbleRemaining > 0) {
-      this.bubbleRemaining -= elapsed;
+      this.bubbleRemaining = this.voiceHeldUntil > this.clock
+        ? Math.max(1_500, this.bubbleRemaining - elapsed)
+        : this.bubbleRemaining - elapsed;
       if (this.bubbleRemaining <= 0) {
         this.bubbleText = null;
         this.activeReactionType = null;
@@ -439,6 +449,7 @@ export class CompanionController {
       frame: clip.steps[frameIndex]!.frame,
       mode: this.mode,
       bubble: this.bubbleText,
+      speechId: this.speechId,
     };
   }
 
@@ -453,6 +464,8 @@ export class CompanionController {
   }
 
   private startReaction(reaction: Reaction): void {
+    this.speechId += 1;
+    this.voiceHeldUntil = 0;
     this.mode = "reacting";
     this.activeReactionType = reaction.event.type;
     this.setClip(reaction.clip);

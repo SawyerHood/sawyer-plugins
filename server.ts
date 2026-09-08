@@ -18,6 +18,7 @@ import {
 import type { MikuEvent, MikuEventType } from "./companion";
 import { watchTaskCompletions } from "./task-events";
 import { renderTestBenchHtml } from "./test-bench";
+import { MikuVoiceService, readVoiceRequest } from "./voice-server";
 
 const BRAIN_STATE_KEY = "brain-state-v1";
 
@@ -60,6 +61,23 @@ function clipText(value: string | null | undefined, limit = 1_200): string {
 const MIKU_ASSET_PATH = resolveAssetPath(import.meta.url);
 
 export default async function plugin(bb: BbPluginApi) {
+  const voice = new MikuVoiceService();
+  bb.onDispose(() => voice.dispose());
+  bb.http.route("POST", "/voice", async (context) => {
+    let text: string;
+    try { text = await readVoiceRequest(context.req.raw); }
+    catch { return Response.json({ error: "Provide 1–180 characters of speakable English text." }, { status: 400 }); }
+    try {
+      const bytes = await voice.synthesize(text);
+      return new Response(new Uint8Array(bytes), {
+        headers: { "content-type": "audio/wav", "cache-control": "no-store" },
+      });
+    } catch (error) {
+      // Renderer errors are deliberately text-free.
+      bb.log.warn(error instanceof Error ? error.message : "Miku voice rendering failed.");
+      return Response.json({ error: "Voice unavailable; check FFmpeg Flite and Rubber Band support on the server." }, { status: 503 });
+    }
+  });
   const settings = bb.settings.define({
     brainEnabled: {
       type: "boolean",
