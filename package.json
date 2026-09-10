@@ -18,7 +18,11 @@
     "name": "Miku Companion",
     "description": "An agent-powered Hatsune Miku companion that observes and comments on activity across BB.",
     "branding": {
-      "icon": "Sparkles"
+      "icon": "Sparkles",
+      "logo": {
+        "light": "./assets/miku-logo.webp",
+        "dark": "./assets/miku-logo.webp"
+      }
     },
     "server": "./server.ts",
     "app": "./app.tsx",

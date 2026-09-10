@@ -1,5 +1,7 @@
 # Miku Companion for BB
 
+![Miku Companion logo](assets/miku-logo.webp)
+
 A small Hatsune Miku roams around every BB screen using the app-wide
 `experimental_appOverlay` plugin API. She alternates idle animations and can
 use a dedicated hidden BB thread to comment on real activity in the app.
@@ -65,6 +67,14 @@ thread. Then enable **Agent-powered comments**. Set the autonomous interval to
 When no brain is enabled or selected, Miku keeps using her built-in scripted
 reactions. Hidden brain threads stay out of the sidebar but can be opened from
 the Miku settings page for inspection.
+
+## Voice
+
+Enable **Speak aloud** in Miku's settings to hear her text bubbles in a
+musical synthesized voice. Voice runs locally and requires FFmpeg with Flite
+and Rubber Band support on the BB server. Click in BB once to enable browser
+audio. Mute her from settings or **Miku: toggle voice** in the command palette;
+text bubbles keep working.
 
 ## Animation test bench
 
