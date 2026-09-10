@@ -59,6 +59,8 @@ describe("issue persistence", () => {
     repairIssueSchema(database);
     repairKeywordSchema(database);
     repairKeywordSchema(database);
+    // Later releases still apply their append-only migrations after the repair.
+    for (const migration of MIGRATIONS.slice(18)) database.exec(migration);
 
     const store = createStore(database);
     store.insertRun(makeRun());

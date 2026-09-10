@@ -1,6 +1,6 @@
 ---
 name: slopcop
-description: Configure automated GitHub issue and PR rules with the `bb slopcop` CLI. Use for new-issue listeners, pull-request reviews, rule changes, author restrictions, match checks, and shadow results.
+description: "Configure or diagnose SlopCop rules that dispatch BB agents for GitHub issues and PRs."
 ---
 
 # SlopCop — automated GitHub issue and PR rules

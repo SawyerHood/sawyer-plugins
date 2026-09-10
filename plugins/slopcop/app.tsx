@@ -35,6 +35,7 @@ interface RuleView {
   id: string;
   name: string;
   repo: string;
+  discordChannelId: string;
   enabled: boolean;
   mode: string;
   triggers: string[];
@@ -54,7 +55,8 @@ interface RunView {
   id: string;
   ruleName: string;
   repo: string;
-  targetKind: "pull_request" | "issue";
+  targetKind: "pull_request" | "issue" | "discord_post";
+  sourceUrl: string | null;
   prNumber: number;
   prTitle: string;
   prAuthor: string;
@@ -84,6 +86,7 @@ const TRUST_LABEL: Record<string, string> = {
 };
 
 const STATUS_TONE: Record<string, string> = {
+  completed: "text-success-foreground bg-success/15",
   commented: "text-success-foreground bg-success/15",
   shadowed: "text-timeline-accent bg-timeline-accent/15",
   reviewing: "text-timeline-accent bg-timeline-accent/15",
@@ -194,7 +197,7 @@ function RulesList({
       <div className="rounded-lg border border-dashed border-border p-8 text-center">
         <p className="text-sm font-medium">No rules yet</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          A rule watches one repo for pull requests or issues. New rules start
+          A rule watches GitHub activity or new Discord posts. New rules start
           in shadow mode — they run but post nothing until you promote them.
         </p>
         <Button size="sm" className="mt-4" onClick={onNew}>
@@ -219,7 +222,9 @@ function RulesList({
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold">{rule.name}</span>
             <span className="rounded-md border border-border bg-surface-recessed px-1.5 py-px font-mono text-xs text-muted-foreground">
-              {rule.repo}
+              {rule.discordChannelId
+                ? `Discord ${rule.discordChannelId}`
+                : rule.repo}
             </span>
             {rule.mode === "shadow" ? (
               <Chip tone="trigger">shadow</Chip>
@@ -244,9 +249,13 @@ function RulesList({
             {rule.conditions.map((condition, index) => (
               <Chip key={index}>{describeCondition(condition)}</Chip>
             ))}
-            <Chip tone={rule.authorTrust === "anyone" ? "warn" : "guard"}>
-              {TRUST_LABEL[rule.authorTrust] ?? rule.authorTrust}
-            </Chip>
+            {rule.triggers.some(
+              (trigger) => trigger !== "discord_post_created",
+            ) ? (
+              <Chip tone={rule.authorTrust === "anyone" ? "warn" : "guard"}>
+                {TRUST_LABEL[rule.authorTrust] ?? rule.authorTrust}
+              </Chip>
+            ) : null}
             {rule.visibility === "hidden" ? <Chip>hidden threads</Chip> : null}
             {rule.dangerous ? (
               <Chip tone="warn">⚠ untrusted code, full access</Chip>
@@ -409,6 +418,9 @@ function RuleEditor({
   const rpc = useRpc<typeof rpcContract>();
   const [name, setName] = useState(rule?.name ?? "");
   const [repo, setRepo] = useState(rule?.repo ?? "");
+  const [discordChannelId, setDiscordChannelId] = useState(
+    rule?.discordChannelId ?? "",
+  );
   const [trust, setTrust] = useState(rule?.authorTrust ?? "write_access");
   const [requesterTrust, setRequesterTrust] = useState(
     rule?.requesterTrust ?? "write_access",
@@ -461,6 +473,8 @@ function RuleEditor({
     return list;
   }, [pathGlobs, baseBranch]);
 
+  const discordOnly =
+    triggers.length === 1 && triggers[0] === "discord_post_created";
   const listensForPullRequests = triggers.some(
     (trigger) => trigger === "ready_for_review" || trigger === "new_commits",
   );
@@ -475,13 +489,23 @@ function RuleEditor({
         toast.error("Give the rule a name first");
         throw new Error("missing name");
       }
-      if (!/^[\w.-]+\/[\w.-]+$/.test(repo.trim())) {
+      if (
+        (!discordOnly || repo.trim()) &&
+        !/^[\w.-]+\/[\w.-]+$/.test(repo.trim())
+      ) {
         toast.error("Repository must look like owner/repo");
         throw new Error("bad repo");
       }
       if (triggers.length === 0) {
         toast.error("Select at least one trigger");
         throw new Error("missing trigger");
+      }
+      if (
+        triggers.includes("discord_post_created") &&
+        !/^\d{17,20}$/.test(discordChannelId.trim())
+      ) {
+        toast.error("Enter the Discord channel ID");
+        throw new Error("missing Discord channel");
       }
       const keywords = commentKeywords
         .split(",")
@@ -500,17 +524,19 @@ function RuleEditor({
         rule: {
           name: name.trim(),
           repo: repo.trim(),
+          discordChannelId: discordChannelId.trim(),
           enabled: rule?.enabled ?? true,
           mode: mode as "shadow" | "live",
           triggers: triggers as (
             | "ready_for_review"
             | "new_commits"
             | "new_issue"
+            | "discord_post_created"
             | "pr_description_matches"
             | "comment_matches"
           )[],
           commentKeywords: keywords,
-          conditions: conditions as never,
+          conditions: (discordOnly ? [] : conditions) as never,
           authorTrust: trust as "write_access" | "past_contributors" | "anyone",
           requesterTrust: requesterTrust as
             | "write_access"
@@ -529,13 +555,15 @@ function RuleEditor({
       });
       toast.success(
         mode === "shadow"
-          ? `Saved '${name}' in shadow mode — it reviews but posts nothing.`
-          : `Saved '${name}' — it will post reviews to ${repo}.`,
+          ? `Saved '${name}' in shadow mode — it runs but posts nothing.`
+          : `Saved '${name}' — it will dispatch agents for matching events.`,
       );
       onDone();
     },
     [
       commentKeywords,
+      discordChannelId,
+      discordOnly,
       conditions,
       mode,
       name,
@@ -565,7 +593,7 @@ function RuleEditor({
         </label>
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-semibold text-muted-foreground">
-            Repository
+            Repository{discordOnly ? " (optional)" : ""}
           </span>
           <Input
             value={repo}
@@ -584,6 +612,7 @@ function RuleEditor({
             "ready_for_review",
             "new_commits",
             "new_issue",
+            "discord_post_created",
             "pr_description_matches",
             "comment_matches",
           ].map((trigger) => (
@@ -608,6 +637,29 @@ function RuleEditor({
           ))}
         </div>
       </div>
+
+      {triggers.includes("discord_post_created") ? (
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">
+            Discord channel ID
+          </span>
+          <Input
+            value={discordChannelId}
+            onChange={(event) => setDiscordChannelId(event.target.value)}
+            placeholder="Copy Channel ID from Discord"
+          />
+          <p className="text-xs text-muted-foreground">
+            Forum/media channels trigger once per new post. Text/announcement
+            channels trigger per new human message. Existing posts are skipped
+            when enabled. Configure the bot token in SlopCop settings.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Discord intake accepts human posts from this channel; GitHub author
+            trust and filters apply only to GitHub events. Your prompt defines
+            the agent’s task.
+          </p>
+        </label>
+      ) : null}
 
       {triggers.some((trigger) =>
         ["comment_matches", "pr_description_matches"].includes(trigger),
@@ -642,60 +694,65 @@ function RuleEditor({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-semibold text-muted-foreground">
-            Changed paths match (PR only)
-          </span>
-          <Input
-            value={pathGlobs}
-            onChange={(event) => setPathGlobs(event.target.value)}
-            placeholder="src/auth/**, src/payments/**"
-          />
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-semibold text-muted-foreground">
-            Base branch (PR only)
-          </span>
-          <Input
-            value={baseBranch}
-            onChange={(event) => setBaseBranch(event.target.value)}
-            placeholder="main"
-          />
-        </label>
-      </div>
-
-      <div className="rounded-lg border border-border bg-surface-recessed p-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">
-            Only handle trusted authors
-          </span>
-          <span className="flex-1" />
-          <select
-            value={trust}
-            onChange={(event) => setTrust(event.target.value)}
-            className="rounded-md border border-input bg-card px-2 py-1 text-xs"
-          >
-            <option value="write_access">Write access only</option>
-            <option value="past_contributors">+ past contributors</option>
-            <option value="anyone">Anyone</option>
-          </select>
+      {!discordOnly ? (
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">
+              Changed paths match (PR only)
+            </span>
+            <Input
+              value={pathGlobs}
+              onChange={(event) => setPathGlobs(event.target.value)}
+              placeholder="src/auth/**, src/payments/**"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">
+              Base branch (PR only)
+            </span>
+            <Input
+              value={baseBranch}
+              onChange={(event) => setBaseBranch(event.target.value)}
+              placeholder="main"
+            />
+          </label>
         </div>
-        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          Matches GitHub&apos;s{" "}
-          <code className="font-mono">authorAssociation</code>. Note that{" "}
-          <b className="text-foreground">CONTRIBUTOR</b> only means &ldquo;has
-          had a commit merged before&rdquo; — not write access — so it is
-          excluded from the default.
-        </p>
-        {trust === "anyone" ? (
-          <p className="mt-2 rounded-md bg-surface-attention p-2 text-xs leading-relaxed">
-            <b className="text-warning-text">!</b> Pull request rules can check
-            out unvetted code from strangers. Issue text can also carry prompt
-            injection. Use the narrowest suitable permission mode below.
+      ) : null}
+
+      {!discordOnly ? (
+        <div className="rounded-lg border border-border bg-surface-recessed p-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold">
+              Only handle trusted authors
+            </span>
+            <span className="flex-1" />
+            <select
+              value={trust}
+              onChange={(event) => setTrust(event.target.value)}
+              className="rounded-md border border-input bg-card px-2 py-1 text-xs"
+            >
+              <option value="write_access">Write access only</option>
+              <option value="past_contributors">+ past contributors</option>
+              <option value="anyone">Anyone</option>
+            </select>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            Matches GitHub&apos;s{" "}
+            <code className="font-mono">authorAssociation</code>. Note that{" "}
+            <b className="text-foreground">CONTRIBUTOR</b> only means &ldquo;has
+            had a commit merged before&rdquo; — not write access — so it is
+            excluded from the default.
           </p>
-        ) : null}
-      </div>
+          {trust === "anyone" ? (
+            <p className="mt-2 rounded-md bg-surface-attention p-2 text-xs leading-relaxed">
+              <b className="text-warning-text">!</b> Pull request rules can
+              check out unvetted code from strangers. Issue text can also carry
+              prompt injection. Use the narrowest suitable permission mode
+              below.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-semibold text-muted-foreground">
@@ -715,13 +772,13 @@ function RuleEditor({
           defaultServiceTier={saved?.serviceTier as never}
           defaultPermissionMode={saved?.permissionMode as never}
           defaultEnvironment={saved?.environment as never}
-          placeholder="Tell the agent how to handle the pull request or issue…"
+          placeholder="Tell the agent what to do when this rule triggers…"
           layout="document"
           onSubmit={handleSubmit}
         />
       </div>
 
-      {rule !== null ? <RunOnTarget rule={rule} /> : null}
+      {rule !== null && !discordOnly ? <RunOnTarget rule={rule} /> : null}
 
       <div className="flex items-center gap-2 border-t border-border pt-3">
         <div className="flex gap-1.5">
@@ -738,7 +795,7 @@ function RuleEditor({
             >
               {value === "shadow"
                 ? "Shadow (post nothing)"
-                : "Live (post to GitHub)"}
+                : "Live (perform actions)"}
             </button>
           ))}
         </div>
@@ -813,7 +870,8 @@ function Activity({ runs }: { runs: RunView[] }) {
   if (runs.length === 0) {
     return (
       <p className="py-8 text-center text-xs text-muted-foreground">
-        No runs yet. Rules dispatch for new issues or matching pull requests.
+        No runs yet. Rules dispatch agents for matching GitHub or Discord
+        events.
       </p>
     );
   }
@@ -836,7 +894,9 @@ function Activity({ runs }: { runs: RunView[] }) {
             <div className="min-w-0 flex-1">
               <p className="text-sm">
                 <span className="font-mono text-pr-merged">
-                  {run.targetKind === "issue" ? "issue" : "PR"} #{run.prNumber}
+                  {run.targetKind === "discord_post"
+                    ? "Discord post"
+                    : `${run.targetKind === "issue" ? "issue" : "PR"} #${run.prNumber}`}
                 </span>{" "}
                 <span className="font-medium">{run.prTitle}</span>
               </p>
@@ -844,6 +904,16 @@ function Activity({ runs }: { runs: RunView[] }) {
                 <span className="text-muted-foreground">{run.ruleName}</span>
                 {run.mode === "shadow" ? <span>shadow</span> : null}
                 <span>{run.trigger.replace(/_/g, " ")}</span>
+                {run.sourceUrl ? (
+                  <a
+                    href={run.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-timeline-accent hover:underline"
+                  >
+                    Open Discord post
+                  </a>
+                ) : null}
                 <span>{relative(run.startedAt)}</span>
                 {run.threadId !== null ? (
                   <button
@@ -866,7 +936,11 @@ function Activity({ runs }: { runs: RunView[] }) {
                 ) : null}
               </div>
               {run.detail !== null ? (
-                <p className="mt-1 text-xs text-warning-text">{run.detail}</p>
+                <p
+                  className={`mt-1 whitespace-pre-wrap text-xs ${run.status === "completed" || run.status === "shadowed" ? "text-muted-foreground" : "text-warning-text"}`}
+                >
+                  {run.detail}
+                </p>
               ) : null}
               {expanded === run.id ? (
                 <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-border pl-2.5">

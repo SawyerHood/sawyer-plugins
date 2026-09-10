@@ -1,6 +1,6 @@
 # 🚨 SlopCop
 
-A [BB](https://github.com/ymichael/bb) plugin that handles new GitHub issues and reviews pull requests.
+A [BB](https://github.com/get-bb/bb) plugin that dispatches agents for GitHub activity and new Discord posts.
 
 Define **rules** with a prompt, repository, triggers, and conditions. SlopCop watches
 GitHub, dispatches a BB agent, and verifies its response with the `gh` CLI. A rule can
@@ -15,7 +15,7 @@ GitHub  ←(gh)—  watcher  →  rule matcher  →  dispatcher  →  BB agent
 ## Install
 
 Requires BB ≥ 0.35 and an authenticated [`gh`](https://cli.github.com) on the machine
-running the BB server.
+running the BB server for GitHub intake. Discord-only rules can run without `gh` authentication.
 
 ```sh
 bb plugin install git:https://github.com/SawyerHood/bb-slop-cop.git@main
@@ -63,6 +63,66 @@ bb plugin config slopcop set defaultThreadSection "Automated reviews"
 ```
 
 Clear the setting to create review threads without a section.
+
+## Discord intake
+
+Select `discord_post_created` in the rule editor and enter a Discord channel ID,
+then use the usual composer to set the agent, project, and prompt. A repository is
+optional for Discord-only rules. GitHub issue syncing is just one possible prompt;
+SlopCop does not maintain an issue mapping or require any GitHub artifact.
+
+Create a Discord bot, invite it to the server with **View Channel** and **Read
+Message History**, and enable **Message Content Intent** in the Discord developer
+portal. Enter its token in **SlopCop settings → Discord bot token**. This is a
+server-only secret; it is never included in agent prompts or rule RPC responses.
+The intake only reads Discord. Replying to Discord would require separate agent
+tools/credentials and instructions.
+
+```sh
+bb slopcop rules add \
+  --name discord-bugs \
+  --trigger discord_post_created \
+  --discord-channel 123456789012345678 \
+  --repo owner/repo \
+  --project my-project \
+  --provider codex \
+  --model <your-model> \
+  --prompt "Check for duplicate GitHub issues. Create an issue for this bug if none exists, with reproduction details and the Discord source link. Return the issue URL."
+```
+
+New rules default to shadow mode. Inspect the proposed action with
+`bb slopcop show`, then enable writes with `bb slopcop rules edit discord-bugs --live`.
+The agent receives the existing `botGhPath` wrapper instruction for GitHub writes.
+
+- **Forum/media channels:** one event for each new post, including archived posts
+  discovered after a restart. Replies do not start additional runs.
+- **Text/announcement channels:** one event per new human message, including replies.
+- Bots and system messages are ignored. GitHub author trust and condition filters
+  apply only to GitHub events; Discord rules accept human posts in the configured channel.
+- Polling uses the existing interval (60 seconds by default). Events from before
+  rule creation/re-enabling are skipped. Posts made while BB is offline are caught
+  up when it resumes. Deleted or inaccessible posts cannot be recovered.
+- Pending events persist across reloads and wait for the shared concurrency limit.
+  Each rule/post pair dispatches once regardless of the rule's GitHub dedupe setting.
+  Failed dispatches remain visible in Runs; inspect the agent thread before retrying work.
+- The prompt includes the post text, author, attachment links, and a source URL.
+  Attachment links are Discord URLs and may expire; files are not copied into BB.
+- `completed` means the agent finished, **not** that SlopCop verified an external
+  action. Shadow results are stored as `shadowed`; no posting format is imposed.
+
+API references: [Discord messages](https://docs.discord.com/developers/resources/message),
+[channels and archived threads](https://docs.discord.com/developers/resources/channel).
+
+## Development
+
+```sh
+npm install
+npm test
+npm run typecheck
+bb plugin build .
+```
+
+Use the same Node version for installing native dependencies and running tests.
 
 ## Design notes
 

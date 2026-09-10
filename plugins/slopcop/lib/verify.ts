@@ -6,12 +6,7 @@
 // instead. Both paths converge on the same status vocabulary.
 import { attributeBody, hasVisibleHeader, parseMarker } from "./marker";
 import type { GhClient, GhComment } from "./gh";
-import type {
-  CommentKind,
-  RunComment,
-  RunStatus,
-  TargetKind,
-} from "./types";
+import type { CommentKind, RunComment, RunStatus, TargetKind } from "./types";
 
 export interface VerifyResult {
   status: RunStatus;
@@ -59,7 +54,7 @@ export async function verifyLive(options: {
   gh: GhClient;
   repo: string;
   prNumber: number;
-  targetKind?: TargetKind;
+  targetKind?: Exclude<TargetKind, "discord_post">;
   runId: string;
   startedAt: number;
   authenticatedLogin: string | null;

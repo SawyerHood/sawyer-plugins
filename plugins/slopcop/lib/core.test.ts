@@ -37,6 +37,7 @@ function makeRule(overrides: Partial<Rule> = {}): Rule {
     id: "rule_1",
     name: "security-sweep",
     repo: "acme/checkout-api",
+    discordChannelId: "",
     enabled: true,
     mode: "shadow",
     triggers: ["ready_for_review"],

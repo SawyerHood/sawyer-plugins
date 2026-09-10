@@ -70,13 +70,18 @@ export const triggerSchema = z.enum([
   "ready_for_review",
   "new_commits",
   "new_issue",
+  "discord_post_created",
   "pr_description_matches",
   "comment_matches",
   "manual",
 ]);
 export type Trigger = z.infer<typeof triggerSchema>;
 
-export const targetKindSchema = z.enum(["pull_request", "issue"]);
+export const targetKindSchema = z.enum([
+  "pull_request",
+  "issue",
+  "discord_post",
+]);
 export type TargetKind = z.infer<typeof targetKindSchema>;
 
 /**
@@ -128,7 +133,8 @@ export type Dedupe = z.infer<typeof dedupeSchema>;
 export const ruleSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
-  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "expected owner/repo"),
+  repo: z.string(),
+  discordChannelId: z.string().default(""),
   enabled: z.boolean(),
   mode: ruleModeSchema,
   triggers: z.array(triggerSchema).min(1),
@@ -150,6 +156,7 @@ export type Rule = z.infer<typeof ruleSchema>;
 export const runStatusSchema = z.enum([
   "dispatched",
   "reviewing",
+  "completed",
   "commented",
   "commented_partial",
   "commented_unmarked",
@@ -181,6 +188,7 @@ export interface Run {
   ruleName: string;
   repo: string;
   targetKind: TargetKind;
+  sourceUrl?: string | null;
   prNumber: number;
   prTitle: string;
   prAuthor: string;

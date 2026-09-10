@@ -1,5 +1,6 @@
 // Persistence. Migrations are append-only by statement index — never reorder
 // or edit a shipped statement, only push new ones.
+import { discordPostSchema, type DiscordPost } from "./discord";
 import type {
   Rule,
   Run,
@@ -129,6 +130,15 @@ export const MIGRATIONS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_comment_events_pending
      ON comment_trigger_events(repo, status, created_at)`,
   `ALTER TABLE rules ADD COLUMN comment_trigger_enabled_at INTEGER`,
+  `ALTER TABLE rules ADD COLUMN discord_channel_id TEXT NOT NULL DEFAULT ''`,
+  `CREATE TABLE IF NOT EXISTS discord_cursors (
+     rule_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, since INTEGER NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS discord_events (
+     rule_id TEXT NOT NULL, post_id TEXT NOT NULL, payload TEXT NOT NULL,
+     PRIMARY KEY (rule_id, post_id)
+   )`,
+  `ALTER TABLE runs ADD COLUMN source_url TEXT`,
 ];
 
 function hasColumn(db: Database, table: string, column: string): boolean {
@@ -223,6 +233,7 @@ export function rowToRule(row: Row): Rule {
     id: text(row, "id"),
     name: text(row, "name"),
     repo: text(row, "repo"),
+    discordChannelId: text(row, "discord_channel_id"),
     enabled: num(row, "enabled") === 1,
     mode: text(row, "mode", "shadow") === "live" ? "live" : "shadow",
     triggers: parseJson<Trigger[]>(row.triggers, ["ready_for_review"]),
@@ -264,9 +275,12 @@ export function rowToRun(row: Row): Run {
     ruleName: text(row, "rule_name"),
     repo: text(row, "repo"),
     targetKind:
-      text(row, "target_kind", "pull_request") === "issue"
-        ? "issue"
-        : "pull_request",
+      text(row, "target_kind") === "discord_post"
+        ? "discord_post"
+        : text(row, "target_kind", "pull_request") === "issue"
+          ? "issue"
+          : "pull_request",
+    sourceUrl: typeof row.source_url === "string" ? row.source_url : null,
     prNumber: num(row, "pr_number"),
     prTitle: text(row, "pr_title"),
     prAuthor: text(row, "pr_author"),
@@ -311,8 +325,8 @@ export function createStore(db: Database) {
         `INSERT INTO rules (id, name, repo, enabled, mode, triggers,
            comment_keywords, conditions, author_trust, requester_trust,
            comment_trigger_enabled_at, prompt, request, dedupe, review_strategy,
-           visibility, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           visibility, created_at, updated_at, discord_channel_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, repo = excluded.repo, enabled = excluded.enabled,
            mode = excluded.mode, triggers = excluded.triggers,
@@ -322,7 +336,8 @@ export function createStore(db: Database) {
            comment_trigger_enabled_at = excluded.comment_trigger_enabled_at,
            prompt = excluded.prompt, request = excluded.request,
            dedupe = excluded.dedupe, review_strategy = excluded.review_strategy,
-           visibility = excluded.visibility, updated_at = excluded.updated_at`,
+           visibility = excluded.visibility, updated_at = excluded.updated_at,
+           discord_channel_id = excluded.discord_channel_id`,
       ).run(
         rule.id,
         rule.name,
@@ -342,10 +357,58 @@ export function createStore(db: Database) {
         rule.visibility,
         rule.createdAt,
         rule.updatedAt,
+        rule.discordChannelId ?? "",
       );
     },
 
+    discordSince(ruleId: string, channelId: string, now: number): number {
+      const row = db
+        .prepare(`SELECT * FROM discord_cursors WHERE rule_id = ?`)
+        .get(ruleId) as Row | undefined;
+      if (row && row.channel_id === channelId) return num(row, "since");
+      this.resetDiscord(ruleId, channelId, now);
+      return now;
+    },
+
+    resetDiscord(ruleId: string, channelId: string, since: number): void {
+      db.prepare(`DELETE FROM discord_events WHERE rule_id = ?`).run(ruleId);
+      db.prepare(
+        `INSERT INTO discord_cursors VALUES (?, ?, ?) ON CONFLICT(rule_id) DO UPDATE SET channel_id = excluded.channel_id, since = excluded.since`,
+      ).run(ruleId, channelId, since);
+    },
+
+    enqueueDiscord(ruleId: string, posts: DiscordPost[], since: number): void {
+      // Persist every event before advancing the scan cursor. Repeating a partial
+      // batch after a crash is safe because each rule/post pair is unique.
+      for (const post of posts) {
+        db.prepare(`INSERT OR IGNORE INTO discord_events VALUES (?, ?, ?)`).run(
+          ruleId,
+          post.id,
+          JSON.stringify(post),
+        );
+      }
+      db.prepare(`UPDATE discord_cursors SET since = ? WHERE rule_id = ?`).run(
+        since,
+        ruleId,
+      );
+    },
+
+    pendingDiscord(ruleId: string): DiscordPost[] {
+      return (
+        db
+          .prepare(
+            `SELECT payload FROM discord_events e WHERE rule_id = ?
+        AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.rule_id = e.rule_id
+          AND r.trigger_event_id = 'discord:' || e.post_id)
+        ORDER BY post_id LIMIT 100`,
+          )
+          .all(ruleId) as Row[]
+      ).map((row) => discordPostSchema.parse(JSON.parse(text(row, "payload"))));
+    },
+
     deleteRule(id: string): void {
+      db.prepare(`DELETE FROM discord_events WHERE rule_id = ?`).run(id);
+      db.prepare(`DELETE FROM discord_cursors WHERE rule_id = ?`).run(id);
       db.prepare(`DELETE FROM comment_trigger_events WHERE rule_id = ?`).run(
         id,
       );
@@ -367,6 +430,16 @@ export function createStore(db: Database) {
       return (rows as Row[]).map(rowToRun);
     },
 
+    unfinishedDiscordRuns(): Run[] {
+      return (
+        db
+          .prepare(
+            `SELECT * FROM runs WHERE target_kind = 'discord_post' AND finished_at IS NULL AND status IN ('dispatched', 'reviewing')`,
+          )
+          .all() as Row[]
+      ).map(rowToRun);
+    },
+
     getRun(id: string): Run | null {
       const row = db.prepare(`SELECT * FROM runs WHERE id = ?`).get(id) as
         | Row
@@ -378,8 +451,8 @@ export function createStore(db: Database) {
       db.prepare(
         `INSERT INTO runs (id, rule_id, rule_name, repo, target_kind, pr_number,
            pr_title, pr_author, head_sha, trigger, trigger_event_id, status, mode,
-           detail, thread_id, comment_count, started_at, finished_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           detail, thread_id, comment_count, started_at, finished_at, source_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         run.id,
         run.ruleId,
@@ -399,6 +472,7 @@ export function createStore(db: Database) {
         run.commentCount,
         run.startedAt,
         run.finishedAt,
+        run.sourceUrl ?? null,
       );
     },
 

@@ -14,6 +14,11 @@ import {
   repairKeywordSchema,
   type Store,
 } from "./lib/db";
+import {
+  createDiscordClient,
+  buildDiscordPrompt,
+  type DiscordPost,
+} from "./lib/discord";
 import { buildPrompt, buildThreadTitle } from "./lib/dispatch";
 import { resolveThreadSectionId } from "./lib/sections";
 import { expandHome } from "./lib/paths";
@@ -52,7 +57,8 @@ const RUNS_CHANNEL = "runs-changed";
 const ruleInputSchema = z
   .object({
     name: z.string().min(1),
-    repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
+    repo: z.string().default(""),
+    discordChannelId: z.string().default(""),
     enabled: z.boolean().default(true),
     mode: ruleModeSchema.default("shadow"),
     triggers: z.array(triggerSchema).min(1).default(["ready_for_review"]),
@@ -67,6 +73,26 @@ const ruleInputSchema = z
     visibility: visibilitySchema.default("visible"),
   })
   .superRefine((rule, context) => {
+    const discord = rule.triggers.includes("discord_post_created");
+    if (discord && !/^\d{17,20}$/.test(rule.discordChannelId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["discordChannelId"],
+        message: "a Discord trigger needs a channel ID",
+      });
+    }
+    if (
+      (!discord ||
+        rule.triggers.some((trigger) => trigger !== "discord_post_created") ||
+        rule.repo !== "") &&
+      !/^[\w.-]+\/[\w.-]+$/.test(rule.repo)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["repo"],
+        message: "expected owner/repo",
+      });
+    }
     const needsKeywords = rule.triggers.some((trigger) =>
       ["comment_matches", "pr_description_matches"].includes(trigger),
     );
@@ -83,6 +109,7 @@ const ruleOutputSchema = z.object({
   id: z.string(),
   name: z.string(),
   repo: z.string(),
+  discordChannelId: z.string(),
   enabled: z.boolean(),
   mode: z.string(),
   triggers: z.array(z.string()),
@@ -107,6 +134,7 @@ const runOutputSchema = z.object({
   ruleName: z.string(),
   repo: z.string(),
   targetKind: targetKindSchema,
+  sourceUrl: z.string().nullable(),
   prNumber: z.number(),
   prTitle: z.string(),
   prAuthor: z.string(),
@@ -174,7 +202,7 @@ export const rpcContract = defineRpcContract({
     input: z.object({
       ruleId: z.string(),
       prNumber: z.number().int(),
-      targetKind: targetKindSchema.default("pull_request"),
+      targetKind: z.enum(["pull_request", "issue"]).default("pull_request"),
       force: z.boolean().optional(),
     }),
     output: z.object({
@@ -189,6 +217,8 @@ export const rpcContract = defineRpcContract({
       ghAvailable: z.boolean(),
       ghLogin: z.string().nullable(),
       watchedRepos: z.array(z.string()),
+      discordConfigured: z.boolean(),
+      watchedDiscordChannels: z.array(z.string()),
       pollSeconds: z.number(),
       defaultThreadSection: z.string(),
     }),
@@ -205,6 +235,14 @@ function toRuleOutput(rule: Rule) {
 
 export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
+    discordBotToken: {
+      type: "string",
+      secret: true,
+      label: "Discord bot token",
+      default: "",
+      description:
+        "Bot with View Channel, Read Message History, and Message Content Intent enabled. Used only by the intake; never passed to agents.",
+    },
     pollSeconds: {
       type: "string",
       label: "Poll interval (seconds)",
@@ -260,6 +298,7 @@ export default async function plugin(bb: BbPluginApi) {
       // an absolute path cannot serve both. Store the tilde, expand it here.
       ghPath: expandHome(botGhPath) || values.ghPath.trim() || "gh",
       botGhPath,
+      discordBotToken: values.discordBotToken.trim(),
       defaultThreadSection: values.defaultThreadSection.trim(),
     };
   };
@@ -299,7 +338,7 @@ export default async function plugin(bb: BbPluginApi) {
    */
   async function dispatch(
     rule: Rule,
-    target: GitHubTarget,
+    target: GitHubTarget | DiscordPost,
     options: {
       forcedReason?: string | null;
       trigger?: Trigger;
@@ -323,7 +362,8 @@ export default async function plugin(bb: BbPluginApi) {
       ruleName: rule.name,
       repo: rule.repo,
       targetKind: target.kind,
-      prNumber: target.number,
+      sourceUrl: target.kind === "discord_post" ? target.url : null,
+      prNumber: target.kind === "discord_post" ? 0 : target.number,
       prTitle: target.title,
       prAuthor: target.author?.login ?? "",
       headSha: target.kind === "pull_request" ? target.headRefOid : "",
@@ -395,8 +435,14 @@ export default async function plugin(bb: BbPluginApi) {
       );
       const thread = await bb.sdk.threads.spawn({
         ...execution,
-        prompt: buildPrompt(context),
-        title: buildThreadTitle(context),
+        prompt:
+          target.kind === "discord_post"
+            ? buildDiscordPrompt(rule, target, botGhPath)
+            : buildPrompt({ ...context, target }),
+        title:
+          target.kind === "discord_post"
+            ? `SlopCop${rule.mode === "shadow" ? " (shadow)" : ""}: ${rule.name} — ${target.title}`
+            : buildThreadTitle({ ...context, target }),
         visibility: rule.visibility,
         ...(sectionId === undefined ? {} : { sectionId }),
       } as never);
@@ -405,7 +451,7 @@ export default async function plugin(bb: BbPluginApi) {
       inFlight += 1;
       announce();
       bb.log.info(
-        `dispatched ${rule.name} for ${target.kind} ${rule.repo}#${target.number} (${rule.mode}) -> ${threadId}`,
+        `dispatched ${rule.name} for ${target.kind} ${target.kind === "discord_post" ? target.url : `${rule.repo}#${target.number}`} (${rule.mode}) -> ${threadId}`,
       );
       return { runId, threadId };
     } catch (error) {
@@ -841,6 +887,18 @@ export default async function plugin(bb: BbPluginApi) {
     if (run === null || run.finishedAt !== null) return;
     inFlight = Math.max(0, inFlight - 1);
 
+    if (run.targetKind === "discord_post") {
+      try {
+        const thread = await bb.sdk.threads.get({ threadId });
+        if (thread.visibility === "hidden")
+          await bb.sdk.threads.stop({ threadId });
+      } catch (error) {
+        bb.log.warn(
+          `Could not release Discord agent ${threadId}: ${error instanceof Error ? error.message : "failed"}`,
+        );
+      }
+    }
+
     if (failure !== null) {
       store.updateRun(run.id, {
         status: "failed",
@@ -851,12 +909,25 @@ export default async function plugin(bb: BbPluginApi) {
       return;
     }
 
+    if (run.targetKind === "discord_post") {
+      store.updateRun(run.id, {
+        status: run.mode === "shadow" ? "shadowed" : "completed",
+        detail:
+          finalMessage?.slice(0, 16000) ||
+          "Agent finished without a final response. Open the thread for details.",
+        finishedAt: Date.now(),
+      });
+      announce();
+      return;
+    }
+
+    const githubTargetKind = run.targetKind;
     const runVerify = () =>
       verifyLive({
         gh,
         repo: run.repo,
         prNumber: run.prNumber,
-        targetKind: run.targetKind,
+        targetKind: githubTargetKind,
         runId: run.id,
         startedAt: run.startedAt,
         authenticatedLogin: ghLogin,
@@ -888,7 +959,7 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   bb.events.on("thread.idle", ({ thread, lastAssistantText }) => {
-    void finishRun(thread.id, lastAssistantText, null).catch(
+    return finishRun(thread.id, lastAssistantText, null).catch(
       (error: unknown) => {
         bb.log.error(
           `verification failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -940,7 +1011,7 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   bb.events.on("thread.failed", ({ thread, error }) => {
-    void describeThreadFailure(thread.id, error).then((detail) =>
+    return describeThreadFailure(thread.id, error).then((detail) =>
       finishRun(thread.id, null, detail),
     );
   });
@@ -998,6 +1069,14 @@ export default async function plugin(bb: BbPluginApi) {
         : null,
     };
     store.upsertRule(rule);
+    if (
+      rule.triggers.includes("discord_post_created") &&
+      (!existing?.triggers.includes("discord_post_created") ||
+        existing.discordChannelId !== rule.discordChannelId ||
+        (!existing.enabled && rule.enabled))
+    ) {
+      store.resetDiscord(rule.id, rule.discordChannelId, now);
+    }
     if (isDangerousCombination(rule)) {
       bb.log.warn(
         `rule '${rule.name}' reviews PRs from ANY author — untrusted code can run with agent access`,
@@ -1032,12 +1111,20 @@ export default async function plugin(bb: BbPluginApi) {
             ? now
             : rule.commentTriggerEnabledAt,
       });
+      if (
+        enabled &&
+        !rule.enabled &&
+        rule.triggers.includes("discord_post_created")
+      )
+        store.resetDiscord(rule.id, rule.discordChannelId, now);
       announce();
       return { ok: true };
     },
 
     listRuns: ({ ruleId, limit }) => ({
-      runs: store.listRuns({ ruleId: ruleId ?? undefined, limit }),
+      runs: store
+        .listRuns({ ruleId: ruleId ?? undefined, limit })
+        .map((run) => ({ ...run, sourceUrl: run.sourceUrl ?? null })),
     }),
 
     getRunComments: ({ runId }) => ({
@@ -1077,11 +1164,24 @@ export default async function plugin(bb: BbPluginApi) {
       return {
         ghAvailable: ghLogin !== null,
         ghLogin,
+        discordConfigured: values.discordBotToken.length > 0,
+        watchedDiscordChannels: [
+          ...new Set(
+            store
+              .listRules()
+              .filter(
+                (rule) =>
+                  rule.enabled &&
+                  rule.triggers.includes("discord_post_created"),
+              )
+              .map((rule) => rule.discordChannelId),
+          ),
+        ],
         watchedRepos: [
           ...new Set(
             store
               .listRules()
-              .filter((rule) => rule.enabled)
+              .filter((rule) => rule.enabled && rule.repo !== "")
               .map((rule) => rule.repo),
           ),
         ],
@@ -1095,7 +1195,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.cli.register({
     name: "slopcop",
-    summary: "Configure automated GitHub review and issue rules",
+    summary: "Configure GitHub and Discord agent rules",
     commands: [
       {
         name: "rules",
@@ -1106,7 +1206,7 @@ export default async function plugin(bb: BbPluginApi) {
         name: "rules-add",
         summary: "Create a rule",
         usage:
-          "bb slopcop rules add --name <n> --repo <owner/repo> --project <name> [--trigger <type,…>] [--keyword <text,…>] [--requester-trust <level>] [--trust <level>] [--live] [--hidden]",
+          "bb slopcop rules add --name <n> --repo <owner/repo> --project <name> [--discord-channel <id>] [--trigger <type,…>] [--keyword <text,…>] [--requester-trust <level>] [--trust <level>] [--live] [--hidden]",
       },
       {
         name: "rules-edit",
@@ -1120,7 +1220,7 @@ export default async function plugin(bb: BbPluginApi) {
       },
       {
         name: "runs",
-        summary: "Recent review runs",
+        summary: "Recent agent runs",
         usage: "bb slopcop runs [--rule <id|name>] [--limit N] [--json]",
       },
       {
@@ -1145,7 +1245,7 @@ export default async function plugin(bb: BbPluginApi) {
       },
       {
         name: "status",
-        summary: "Show gh auth and watched repos",
+        summary: "Show GitHub and Discord intake configuration",
         usage: "bb slopcop status",
       },
     ],
@@ -1172,7 +1272,7 @@ export default async function plugin(bb: BbPluginApi) {
             ...new Set(
               store
                 .listRules()
-                .filter((rule) => rule.enabled)
+                .filter((rule) => rule.enabled && rule.repo !== "")
                 .map((rule) => rule.repo),
             ),
           ];
@@ -1180,6 +1280,19 @@ export default async function plugin(bb: BbPluginApi) {
             ghLogin,
             ghAvailable: ghLogin !== null,
             watchedRepos: repos,
+            discordConfigured: values.discordBotToken.length > 0,
+            watchedDiscordChannels: [
+              ...new Set(
+                store
+                  .listRules()
+                  .filter(
+                    (rule) =>
+                      rule.enabled &&
+                      rule.triggers.includes("discord_post_created"),
+                  )
+                  .map((rule) => rule.discordChannelId),
+              ),
+            ],
             pollSeconds: values.pollSeconds,
             defaultThreadSection: values.defaultThreadSection,
             rules: store.listRules().length,
@@ -1189,7 +1302,7 @@ export default async function plugin(bb: BbPluginApi) {
               ? JSON.stringify(payload, null, 2)
               : `gh: ${ghLogin ?? "NOT AUTHENTICATED"}\nwatching: ${
                   repos.join(", ") || "(no enabled rules)"
-                }\npolling every ${values.pollSeconds}s\ndefault section: ${
+                }\nDiscord: ${payload.discordConfigured ? "token configured" : "not configured"}\nDiscord channels: ${payload.watchedDiscordChannels.join(", ") || "(none)"}\npolling every ${values.pollSeconds}s\ndefault section: ${
                   values.defaultThreadSection || "(unsectioned)"
                 }\n${payload.rules} rule(s)`,
           );
@@ -1253,7 +1366,9 @@ export default async function plugin(bb: BbPluginApi) {
           );
           const parsed = ruleInputSchema.parse({
             name: flag("name") ?? existing?.name,
-            repo: flag("repo") ?? existing?.repo,
+            repo: flag("repo") ?? existing?.repo ?? "",
+            discordChannelId:
+              flag("discord-channel") ?? existing?.discordChannelId ?? "",
             enabled: has("disabled") ? false : (existing?.enabled ?? true),
             mode: has("live")
               ? "live"
@@ -1366,6 +1481,12 @@ export default async function plugin(bb: BbPluginApi) {
                 ? now
                 : rule.commentTriggerEnabledAt,
           });
+          if (
+            enabled &&
+            !rule.enabled &&
+            rule.triggers.includes("discord_post_created")
+          )
+            store.resetDiscord(rule.id, rule.discordChannelId, now);
           announce();
           return ok(
             `${sub === "enable" ? "Enabled" : "Disabled"} '${rule.name}'.`,
@@ -1387,7 +1508,11 @@ export default async function plugin(bb: BbPluginApi) {
               .map(
                 (run) =>
                   `${run.status.padEnd(24)} ${run.ruleName}  ${
-                    run.targetKind === "issue" ? "issue" : "PR"
+                    run.targetKind === "discord_post"
+                      ? "Discord post"
+                      : run.targetKind === "issue"
+                        ? "issue"
+                        : "PR"
                   } #${run.prNumber} ${run.prTitle}` +
                   (run.commentCount > 0
                     ? `  (${run.commentCount} comment(s))`
@@ -1404,6 +1529,10 @@ export default async function plugin(bb: BbPluginApi) {
             (target === "" ? null : store.getRun(target)) ??
             store.listRuns({ limit: 1 })[0];
           if (run === undefined || run === null) return fail("no such run");
+          if (run.targetKind === "discord_post")
+            return fail(
+              "Discord runs track agent completion; no GitHub artifact is required or verified",
+            );
           if (run.mode === "shadow") {
             return fail(
               "shadow runs post nothing, so there is nothing on GitHub to verify",
@@ -1441,7 +1570,7 @@ export default async function plugin(bb: BbPluginApi) {
           const comments = store.listComments(run.id);
           if (json) return ok(JSON.stringify({ run, comments }, null, 2));
           const header =
-            `${run.ruleName} — ${run.targetKind === "issue" ? "issue" : "PR"} ${run.repo}#${run.prNumber} ${run.prTitle}\n` +
+            `${run.ruleName} — ${run.targetKind === "discord_post" ? "Discord post" : run.targetKind === "issue" ? "issue" : "PR"} ${run.repo}#${run.prNumber} ${run.prTitle}\n` +
             `status: ${run.status}${run.mode === "shadow" ? " (shadow — nothing was posted)" : ""}` +
             (run.detail === null ? "" : `\ndetail: ${run.detail}`);
           const bodies = comments
@@ -1530,38 +1659,145 @@ export default async function plugin(bb: BbPluginApi) {
 
   // --- watcher -------------------------------------------------------------
 
+  let discordClient: ReturnType<typeof createDiscordClient> | null = null;
+  let discordToken = "";
+  async function pollDiscord(
+    token: string,
+    maxConcurrent: number,
+    signal: AbortSignal,
+  ) {
+    const rules = store
+      .listRules()
+      .filter(
+        (rule) =>
+          rule.enabled && rule.triggers.includes("discord_post_created"),
+      );
+    if (rules.length === 0) return;
+    if (!token)
+      throw new Error(
+        "Set the Discord bot token in SlopCop settings to enable Discord intake",
+      );
+    if (token !== discordToken || !discordClient) {
+      discordToken = token;
+      discordClient = createDiscordClient(token, signal);
+    }
+    for (const rule of rules) {
+      if (signal.aborted) return;
+      const now = Date.now();
+      const since = store.discordSince(rule.id, rule.discordChannelId, now);
+      try {
+        const posts = await discordClient.listPosts(
+          rule.discordChannelId,
+          since,
+        );
+        const current = store.getRule(rule.id);
+        if (
+          !current?.enabled ||
+          current.updatedAt !== rule.updatedAt ||
+          current.discordChannelId !== rule.discordChannelId ||
+          !current.triggers.includes("discord_post_created")
+        )
+          continue;
+        store.enqueueDiscord(rule.id, posts, Math.max(since, now - 60_000));
+      } catch (error) {
+        bb.log.warn(
+          `Discord scan for ${rule.name}: ${error instanceof Error ? error.message : "failed"}`,
+        );
+      }
+      for (const post of store.pendingDiscord(rule.id)) {
+        if (signal.aborted || inFlight >= maxConcurrent) break;
+        const current = store.getRule(rule.id);
+        if (
+          !current?.enabled ||
+          !current.request ||
+          current.discordChannelId !== rule.discordChannelId ||
+          !current.triggers.includes("discord_post_created")
+        )
+          break;
+        await dispatch(current, post, {
+          trigger: "discord_post_created",
+          triggerEventId: `discord:${post.id}`,
+        });
+      }
+    }
+  }
+
   bb.background.service("watcher", {
     async start(signal) {
+      discordClient = null;
+      const unfinished = store.unfinishedDiscordRuns();
+      inFlight = unfinished.filter((run) => run.threadId !== null).length;
+      for (const run of unfinished) {
+        if (!run.threadId) {
+          store.updateRun(run.id, {
+            status: "failed",
+            detail:
+              "Dispatch interrupted before a thread was recorded; inspect before retrying",
+            finishedAt: Date.now(),
+          });
+          continue;
+        }
+        try {
+          const thread = await bb.sdk.threads.get({ threadId: run.threadId });
+          if (run.targetKind === "discord_post" && thread.status === "idle") {
+            const output = await bb.sdk.threads.output({
+              threadId: run.threadId,
+            });
+            await finishRun(run.threadId, output.output, null);
+          } else if (
+            run.targetKind === "discord_post" &&
+            ["error", "stopped", "archived"].includes(thread.status)
+          ) {
+            await finishRun(
+              run.threadId,
+              null,
+              "Agent stopped before completion was recorded",
+            );
+          }
+        } catch (error) {
+          bb.log.warn(
+            `Could not reconcile run ${run.id}: ${error instanceof Error ? error.message : "failed"}`,
+          );
+        }
+      }
       const initial = await readSettings();
       gh = createGhClient(initial.ghPath);
       ghLogin = await gh.authenticatedLogin();
       if (ghLogin === null) {
-        bb.status.needsConfiguration(
-          "`gh` is not authenticated on this machine. Run `gh auth login`, then reload the plugin.",
-        );
-        return;
+        bb.log.warn("GitHub intake paused; Discord intake can still run");
+      } else {
+        bb.log.info(`gh authenticated as ${ghLogin}`);
       }
-      bb.log.info(`gh authenticated as ${ghLogin}`);
 
       while (!signal.aborted) {
         const values = await readSettings();
         try {
-          await poll(values.maxConcurrent);
+          await pollDiscord(
+            values.discordBotToken,
+            values.maxConcurrent,
+            signal,
+          );
+        } catch (error) {
+          bb.log.error(
+            `Discord intake: ${error instanceof Error ? error.message : "failed"}`,
+          );
+        }
+        try {
+          if (ghLogin !== null) await poll(values.maxConcurrent);
         } catch (error) {
           bb.log.error(
             `poll pass failed: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
-        await new Promise((resolve) => {
-          const timer = setTimeout(resolve, values.pollSeconds * 1_000);
-          signal.addEventListener(
-            "abort",
-            () => {
-              clearTimeout(timer);
-              resolve(undefined);
-            },
-            { once: true },
-          );
+        if (signal.aborted) break;
+        await new Promise<void>((resolve) => {
+          const finish = () => {
+            clearTimeout(timer);
+            signal.removeEventListener("abort", finish);
+            resolve();
+          };
+          const timer = setTimeout(finish, values.pollSeconds * 1_000);
+          signal.addEventListener("abort", finish, { once: true });
         });
       }
     },
