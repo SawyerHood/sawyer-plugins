@@ -1,0 +1,45 @@
+{
+  "name": "bb-plugin-cascade",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A scrollable, tiled layout for active BB threads.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SawyerHood/bb-plugin-cascade.git"
+  },
+  "homepage": "https://github.com/SawyerHood/bb-plugin-cascade#readme",
+  "engines": {
+    "bb": ">=0.37.0",
+    "bbPluginSdk": ">=0.4.3"
+  },
+  "bb": {
+    "name": "Cascade",
+    "description": "Scrollable-tiling thread layout — scroll columns horizontally, flip rows vertically.",
+    "branding": {
+      "icon": "./assets/icon.svg"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx"
+  },
+  "keywords": [
+    "bb-plugin"
+  ],
+  "scripts": {
+    "build": "bb plugin build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.4.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.4.4",
+    "@types/react": "^19.0.0",
+    "bb-app": "0.37.0",
+    "react": "^19.0.0",
+    "sonner": "^2.0.7",
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
+  }
+}
