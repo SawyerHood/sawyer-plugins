@@ -1,0 +1,41 @@
+{
+  "name": "bb-plugin-btrfs-cow",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Run a thread in a copy-on-write reflink copy of the project checkout (Btrfs, XFS)",
+  "engines": {
+    "bb": ">=0.42",
+    "bbPluginSdk": ">=0.4.53"
+  },
+  "bb": {
+    "name": "CoW copy",
+    "description": "Run a thread in a copy-on-write reflink copy of the project checkout (Btrfs, XFS)",
+    "branding": {
+      "icon": "Copy"
+    },
+    "server": "./server.ts",
+    "host": "./host.ts"
+  },
+  "keywords": [
+    "bb-plugin"
+  ],
+  "scripts": {
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "bb plugin build"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.4.53",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.1"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SawyerHood/bb-plugin-btrfs-cow.git"
+  }
+}
