@@ -3,7 +3,7 @@
   "sdkVersion": "0.4.26",
   "artifactFormatVersion": 1,
   "pluginId": "slopcop",
-  "pluginVersion": "0.1.0",
+  "pluginVersion": "0.1.4",
   "builtWith": {
     "bbVersion": "0.40.0",
     "pluginSdkVersion": "0.4.26"
