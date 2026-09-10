@@ -1,0 +1,5 @@
+node_modules/
+
+# dist/ IS committed: `bb plugin install git:…` prefers a prebuilt bundle, so
+# shipping it means consumers never need npm or a build step.
+dist/*.map
