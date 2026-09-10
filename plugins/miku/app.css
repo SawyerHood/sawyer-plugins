@@ -1,0 +1,238 @@
+.miku-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482000;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+
+.miku-companion {
+  appearance: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 138px;
+  height: 153px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  opacity: 0;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  transition: opacity 160ms ease;
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.miku-companion[data-mode="dragging"] {
+  cursor: grabbing;
+}
+
+.miku-companion[data-ready="true"] {
+  opacity: 1;
+}
+
+.miku-companion:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 18px;
+}
+
+.miku-sprite {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 138px;
+  height: 153px;
+  transform-origin: center bottom;
+  filter: drop-shadow(0 2px 1px rgb(0 0 0 / 0.24));
+}
+
+.miku-sprite[data-direction="left"] {
+  transform: scaleX(-1);
+}
+
+.miku-sprite canvas {
+  display: block;
+  width: 138px;
+  height: 153px;
+  image-rendering: pixelated;
+}
+
+.miku-shadow {
+  position: absolute;
+  left: 37px;
+  bottom: 2px;
+  width: 64px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.17);
+  filter: blur(2px);
+  transform: scaleX(0.9);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.miku-companion[data-mode="reacting"] .miku-shadow {
+  opacity: 0.1;
+  transform: scaleX(0.72);
+}
+
+.miku-bubble {
+  position: absolute;
+  z-index: 2;
+  top: var(--miku-bubble-top, -22px);
+  left: var(--miku-bubble-left, 69px);
+  display: block;
+  width: max-content;
+  min-width: 132px;
+  max-width: min(230px, calc(100vw - 24px));
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, #00d8c8 28%);
+  border-radius: 14px;
+  color: var(--popover-foreground);
+  background: color-mix(in srgb, var(--popover) 94%, #d9fffa 6%);
+  box-shadow: 0 7px 22px rgb(0 0 0 / 0.2);
+  font: 650 12px/1.35 ui-rounded, "Nunito", system-ui, sans-serif;
+  text-align: center;
+  white-space: normal;
+  opacity: 0;
+  transform: translateY(7px) scale(0.82);
+  transform-origin: bottom center;
+  transition:
+    opacity 130ms ease,
+    transform 190ms cubic-bezier(0.2, 0.9, 0.2, 1.16);
+  pointer-events: none;
+}
+
+.miku-bubble[data-visible="true"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.miku-companion:active .miku-sprite {
+  translate: 0 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .miku-companion,
+  .miku-bubble,
+  .miku-shadow {
+    transition: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .miku-companion {
+    width: 110px;
+    height: 122px;
+  }
+
+  .miku-sprite,
+  .miku-sprite canvas {
+    width: 110px;
+    height: 122px;
+  }
+
+  .miku-shadow {
+    left: 30px;
+    width: 50px;
+  }
+
+}
+
+.miku-settings {
+  display: grid;
+  gap: 14px;
+  max-width: 620px;
+}
+
+.miku-behavior-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 620px;
+  cursor: pointer;
+}
+
+.miku-behavior-toggle input {
+  margin-top: 3px;
+}
+
+.miku-behavior-toggle span {
+  display: grid;
+  gap: 3px;
+}
+
+.miku-behavior-toggle strong {
+  font-size: 13px;
+}
+
+.miku-behavior-toggle small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.miku-settings-field {
+  display: grid;
+  gap: 7px;
+}
+
+.miku-settings-label {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.miku-settings select {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--background);
+  font: inherit;
+}
+
+.miku-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.miku-settings-actions button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--secondary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.miku-settings-actions button:disabled,
+.miku-settings select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.miku-settings-note,
+.miku-settings-error {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.miku-settings-error {
+  color: var(--destructive);
+}

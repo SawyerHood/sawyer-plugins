@@ -1,0 +1,723 @@
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import {
+  definePluginApp,
+  experimental_PermissionModePicker as PermissionModePicker,
+  experimental_ProviderModelPicker as ProviderModelPicker,
+  useBbContext,
+  useBbNavigate,
+  useRealtime,
+  useRpc,
+  useSettings,
+  type ExperimentalProviderModelPickerValue,
+} from "@get-bb/plugin-sdk/app";
+import type { BrainSelection } from "./brain-contract";
+import type { brainRpcContract } from "./brain-contract";
+import {
+  calculateBubbleAnchorY,
+  calculateBubbleLayout,
+  type BubbleMotionMode,
+} from "./bubble-layout";
+import {
+  CompanionController,
+  isMikuEvent,
+  type MikuEvent,
+  type SavedCompanionPosition,
+} from "./companion";
+import { CANVAS_HEIGHT, CANVAS_WIDTH, type SpriteFrame } from "./sprites";
+import {
+  readMikuVisibility,
+  subscribeToMikuVisibility,
+  toggleMikuVisibility,
+} from "./visibility";
+import {
+  readMikuWalking,
+  setMikuWalking,
+  subscribeToMikuWalking,
+  toggleMikuWalking,
+} from "./movement";
+import { toast } from "sonner";
+import { readMikuVoice, setMikuVoice, subscribeToMikuVoice, toggleMikuVoice } from "./voice-preference";
+import { BrowserVoiceTransport, MikuVoicePlayer } from "./voice-player";
+import "./app.css";
+
+const ASSET_URL = "/api/v1/plugins/miku/http/assets/miku.png";
+const EDGE_INSET_PX = 12;
+const BUBBLE_SAFE_TOP_PX = 62;
+const BUBBLE_VIEWPORT_MARGIN_PX = 10;
+const BUBBLE_SPRITE_GAP_PX = 8;
+const STORAGE_KEY = "bb-plugin-miku:position-v2";
+const LEGACY_STORAGE_KEY = "bb-plugin-miku:position";
+
+interface BrainThreadOption {
+  id: string;
+  projectId: string;
+  providerId: string;
+  title: string;
+  status: string;
+}
+
+interface BrainSetup {
+  threadId: string | null;
+  selection: BrainSelection;
+  threads: BrainThreadOption[];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function BrainSettings() {
+  const rpc = useRpc<typeof brainRpcContract>();
+  const settings = useSettings();
+  const navigate = useBbNavigate();
+  const projectId =
+    typeof settings.values?.brainProject === "string"
+      ? settings.values.brainProject
+      : null;
+  const enabled = settings.values?.brainEnabled === true;
+  const [setup, setSetup] = useState<BrainSetup | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    void rpc
+      .call("brain.get", { projectId })
+      .then((result) => {
+        if (!cancelled) setSetup(result);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(errorMessage(reason));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, rpc]);
+
+  const saveSelection = (selection: BrainSelection) => {
+    if (setup === null) return;
+    const providerChanged = selection.providerId !== setup.selection.providerId;
+    setSetup({
+      ...setup,
+      threadId: providerChanged ? null : setup.threadId,
+      selection,
+    });
+    setError(null);
+    void rpc.call("brain.configure", selection).catch((reason: unknown) => {
+      setError(errorMessage(reason));
+    });
+  };
+
+  const configureProvider = (value: ExperimentalProviderModelPickerValue) => {
+    if (setup === null) return;
+    saveSelection({
+      providerId: value.providerId,
+      model: value.model,
+      reasoningLevel: value.reasoningLevel,
+      serviceTier: value.serviceTier ?? null,
+      permissionMode: setup.selection.permissionMode,
+    });
+  };
+
+  const selectThread = async (threadId: string) => {
+    if (setup === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await rpc.call("brain.select", {
+        threadId: threadId === "" ? null : threadId,
+      });
+      const thread = setup.threads.find((candidate) => candidate.id === result.threadId);
+      setSetup({
+        ...setup,
+        threadId: result.threadId,
+        selection:
+          thread === undefined
+            ? setup.selection
+            : { ...setup.selection, providerId: thread.providerId },
+      });
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createBrain = async () => {
+    if (setup === null || projectId === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { thread } = await rpc.call("brain.create", {
+        projectId,
+        selection: setup.selection,
+      });
+      setSetup({
+        ...setup,
+        threadId: thread.id,
+        threads: [thread, ...setup.threads.filter((item) => item.id !== thread.id)],
+      });
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (setup === null) {
+    return <p className="miku-settings-note">Loading Miku’s brain settings…</p>;
+  }
+
+  const pickerValue: ExperimentalProviderModelPickerValue = {
+    providerId: setup.selection.providerId,
+    model: setup.selection.model,
+    reasoningLevel: setup.selection.reasoningLevel,
+    ...(setup.selection.serviceTier === null
+      ? {}
+      : { serviceTier: setup.selection.serviceTier }),
+  };
+
+  return (
+    <div className="miku-settings">
+      <div className="miku-settings-field">
+        <span className="miku-settings-label">Provider, model, and thinking</span>
+        <ProviderModelPicker
+          value={pickerValue}
+          onChange={configureProvider}
+          align="start"
+          disabled={busy}
+        />
+      </div>
+      <div className="miku-settings-field">
+        <span className="miku-settings-label">Permission mode</span>
+        <PermissionModePicker
+          providerId={setup.selection.providerId}
+          value={setup.selection.permissionMode}
+          onChange={(permissionMode) =>
+            saveSelection({ ...setup.selection, permissionMode })
+          }
+          align="start"
+          disabled={busy}
+        />
+      </div>
+      <label className="miku-settings-field">
+        <span className="miku-settings-label">Hidden brain thread</span>
+        <select
+          value={setup.threadId ?? ""}
+          disabled={busy || projectId === null}
+          onChange={(event) => void selectThread(event.currentTarget.value)}
+        >
+          <option value="">No agent brain (use scripted reactions)</option>
+          {setup.threads.map((thread) => (
+            <option key={thread.id} value={thread.id}>
+              {thread.title} · {thread.providerId} · {thread.status}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="miku-settings-actions">
+        <button
+          type="button"
+          disabled={busy || projectId === null}
+          onClick={() => void createBrain()}
+        >
+          {busy ? "Preparing…" : "Create a new hidden brain"}
+        </button>
+        {setup.threadId !== null ? (
+          <button type="button" onClick={() => navigate.toThread(setup.threadId!)}>
+            Open brain thread
+          </button>
+        ) : null}
+      </div>
+      {projectId === null ? (
+        <p className="miku-settings-note">Choose a Brain project above first.</p>
+      ) : !enabled ? (
+        <p className="miku-settings-note">
+          Turn on Agent-powered comments above when the brain is ready.
+        </p>
+      ) : setup.threadId === null ? (
+        <p className="miku-settings-note">
+          Create or select a hidden thread to replace scripted comments.
+        </p>
+      ) : (
+        <p className="miku-settings-note">
+          Activity is batched for one second; later batches steer the active response.
+        </p>
+      )}
+      {error === null ? null : <p className="miku-settings-error">{error}</p>}
+    </div>
+  );
+}
+
+function BehaviorSettings() {
+  const [walking, setWalking] = useState(readMikuWalking);
+  const [voice, setVoice] = useState(readMikuVoice);
+
+  useEffect(() => subscribeToMikuWalking(setWalking), []);
+  useEffect(() => subscribeToMikuVoice(setVoice), []);
+
+  return (
+    <div className="miku-settings">
+    <label className="miku-behavior-toggle">
+      <input
+        type="checkbox"
+        checked={!walking}
+        onChange={(event) => setMikuWalking(!event.currentTarget.checked)}
+      />
+      <span>
+        <strong>Stay in place</strong>
+        <small>
+          Keep idle animations, reactions, speech, and dragging without roaming.
+        </small>
+      </span>
+    </label>
+    <label className="miku-behavior-toggle">
+      <input type="checkbox" checked={voice}
+        onChange={(event) => setMikuVoice(event.currentTarget.checked)} />
+      <span><strong>Speak aloud</strong><small>
+        Bright &amp; musical voice (sample 05). Saved for this browser.
+        Click in BB once to allow audio. Muting keeps text bubbles.
+      </small></span>
+    </label>
+    </div>
+  );
+}
+
+function readSavedPosition(): SavedCompanionPosition {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null") as
+      | Partial<SavedCompanionPosition>
+      | null;
+    if (
+      value !== null &&
+      typeof value.xRatio === "number" &&
+      Number.isFinite(value.xRatio) &&
+      typeof value.yRatio === "number" &&
+      Number.isFinite(value.yRatio) &&
+      (value.direction === -1 || value.direction === 1)
+    ) {
+      return {
+        xRatio: Math.min(1, Math.max(0, value.xRatio)),
+        yRatio: Math.min(1, Math.max(0, value.yRatio)),
+        direction: value.direction,
+      };
+    }
+
+    const legacy = JSON.parse(
+      window.localStorage.getItem(LEGACY_STORAGE_KEY) ?? "null",
+    ) as { ratio?: unknown; direction?: unknown } | null;
+    if (
+      legacy !== null &&
+      typeof legacy.ratio === "number" &&
+      Number.isFinite(legacy.ratio) &&
+      (legacy.direction === -1 || legacy.direction === 1)
+    ) {
+      return {
+        xRatio: Math.min(1, Math.max(0, legacy.ratio)),
+        yRatio: 0.78,
+        direction: legacy.direction,
+      };
+    }
+  } catch {
+    // Storage is optional; a fresh starting point is perfectly fine.
+  }
+  return { xRatio: 0.12, yRatio: 0.78, direction: 1 };
+}
+
+function persistPosition(position: SavedCompanionPosition): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(position));
+  } catch {
+    // Private browsing and storage policies can make localStorage unavailable.
+  }
+}
+
+/** Remove the source art's flat blue matte without modifying the original PNG. */
+async function prepareSpriteSheet(signal: AbortSignal): Promise<HTMLCanvasElement> {
+  const response = await fetch(ASSET_URL, { signal });
+  if (!response.ok) throw new Error(`Miku sprite request failed (${response.status})`);
+
+  const bitmap = await createImageBitmap(await response.blob());
+  if (signal.aborted) {
+    bitmap.close();
+    throw new DOMException("Aborted", "AbortError");
+  }
+
+  const sheet = document.createElement("canvas");
+  sheet.width = bitmap.width;
+  sheet.height = bitmap.height;
+  const context = sheet.getContext("2d", { willReadFrequently: true });
+  if (context === null) {
+    bitmap.close();
+    throw new Error("Miku needs Canvas 2D support");
+  }
+
+  context.drawImage(bitmap, 0, 0);
+  bitmap.close();
+
+  const pixels = context.getImageData(0, 0, sheet.width, sheet.height);
+  const background = pixels.data.slice(0, 3);
+  for (let index = 0; index < pixels.data.length; index += 4) {
+    const distance =
+      Math.abs(pixels.data[index]! - background[0]!) +
+      Math.abs(pixels.data[index + 1]! - background[1]!) +
+      Math.abs(pixels.data[index + 2]! - background[2]!);
+    if (distance <= 9) pixels.data[index + 3] = 0;
+  }
+  context.putImageData(pixels, 0, 0);
+  return sheet;
+}
+
+function eventBelongsHere(event: MikuEvent, projectId: string | null): boolean {
+  return !(
+    event.projectId !== undefined &&
+    projectId !== null &&
+    event.projectId !== projectId
+  );
+}
+
+function MikuOverlay() {
+  const { projectId } = useBbContext();
+  const [visible, setVisible] = useState(readMikuVisibility);
+  const [walking, setWalking] = useState(readMikuWalking);
+  const walkerRef = useRef<HTMLButtonElement>(null);
+  const spriteRef = useRef<HTMLSpanElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const bubbleRef = useRef<HTMLSpanElement>(null);
+  const controllerRef = useRef<CompanionController | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    offsetX: number;
+    offsetY: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
+
+  useRealtime("companion-events", (payload) => {
+    if (!isMikuEvent(payload) || !eventBelongsHere(payload, projectId)) return;
+    controllerRef.current?.dispatch(payload);
+  });
+
+  useEffect(() => subscribeToMikuVisibility(setVisible), []);
+  useEffect(() => subscribeToMikuWalking(setWalking), []);
+  useEffect(() => controllerRef.current?.setWalkingEnabled(walking), [walking]);
+
+  useEffect(() => {
+    if (!visible) return;
+
+    const walker = walkerRef.current;
+    const sprite = spriteRef.current;
+    const canvas = canvasRef.current;
+    const bubble = bubbleRef.current;
+    if (walker === null || sprite === null || canvas === null || bubble === null) {
+      return;
+    }
+
+    const abortController = new AbortController();
+    const { signal } = abortController;
+    const context = canvas.getContext("2d");
+    if (context === null) return () => abortController.abort();
+
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
+    context.imageSmoothingEnabled = false;
+
+    const controller = new CompanionController(readSavedPosition());
+    controller.setWalkingEnabled(walking);
+    controllerRef.current = controller;
+    const voiceTransport = new BrowserVoiceTransport();
+    let voiceEnabled = readMikuVoice();
+    let voiceErrorShown = false;
+    const voicePlayer = new MikuVoicePlayer(voiceTransport,
+      (id, held) => controller.holdSpeech(id, held),
+      (error) => {
+        if (!voiceErrorShown) {
+          voiceErrorShown = true;
+          toast.error(errorMessage(error));
+        }
+      });
+    const updateVoice = () => voicePlayer.setEnabled(voiceEnabled && !document.hidden);
+    updateVoice();
+    const unsubscribeVoice = subscribeToMikuVoice((enabled) => {
+      voiceEnabled = enabled;
+      voiceErrorShown = false;
+      updateVoice();
+      if (enabled) voiceTransport.unlock();
+    });
+    const unlockVoice = () => { if (voiceEnabled) voiceTransport.unlock(); };
+    document.addEventListener("pointerdown", unlockVoice, { signal });
+    document.addEventListener("keydown", unlockVoice, { signal });
+    document.addEventListener("visibilitychange", updateVoice, { signal });
+    if (navigator.userActivation?.hasBeenActive) unlockVoice();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let animationFrame = 0;
+    let previousTime = 0;
+    let sheet: HTMLCanvasElement | null = null;
+    let lastFrame: SpriteFrame | null = null;
+    let lastBubble: string | null = null;
+
+    const updateBounds = () => {
+      controller.setBounds({
+        minX: EDGE_INSET_PX,
+        maxX: Math.max(
+          EDGE_INSET_PX,
+          window.innerWidth - walker.offsetWidth - EDGE_INSET_PX,
+        ),
+        minY: BUBBLE_SAFE_TOP_PX,
+        maxY: Math.max(
+          BUBBLE_SAFE_TOP_PX,
+          window.innerHeight - walker.offsetHeight - EDGE_INSET_PX,
+        ),
+      });
+    };
+
+    const draw = (frame: SpriteFrame) => {
+      if (sheet === null || frame === lastFrame) return;
+      context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      const destinationX = Math.round((CANVAS_WIDTH - frame.width) / 2);
+      const destinationY = CANVAS_HEIGHT - frame.height;
+      context.drawImage(
+        sheet,
+        frame.x,
+        frame.y,
+        frame.width,
+        frame.height,
+        destinationX,
+        destinationY,
+        frame.width,
+        frame.height,
+      );
+      lastFrame = frame;
+    };
+
+    const positionBubble = (
+      x: number,
+      y: number,
+      frame: SpriteFrame,
+      mode: BubbleMotionMode,
+    ) => {
+      const bubbleWidth = bubble.offsetWidth;
+      const bubbleHeight = bubble.offsetHeight;
+      if (bubbleWidth === 0 || bubbleHeight === 0) return;
+      const anchorY = calculateBubbleAnchorY({
+        frameHeight: frame.height,
+        canvasHeight: CANVAS_HEIGHT,
+        renderedHeight: walker.offsetHeight,
+        gap: BUBBLE_SPRITE_GAP_PX,
+        mode,
+      });
+
+      const layout = calculateBubbleLayout({
+        companionX: x,
+        companionY: y,
+        companionWidth: walker.offsetWidth,
+        bubbleWidth,
+        bubbleHeight,
+        viewportWidth: window.innerWidth,
+        viewportMargin: BUBBLE_VIEWPORT_MARGIN_PX,
+        anchorY,
+      });
+
+      bubble.style.setProperty(
+        "--miku-bubble-left",
+        `${Math.round(layout.localLeft)}px`,
+      );
+      bubble.style.setProperty(
+        "--miku-bubble-top",
+        `${Math.round(layout.localTop)}px`,
+      );
+    };
+
+    const render = (elapsed: number) => {
+      const snapshot = controller.tick(elapsed, reducedMotion.matches);
+      voicePlayer.sync(snapshot.speechId, snapshot.bubble);
+      walker.style.transform = `translate3d(${Math.round(snapshot.x)}px, ${Math.round(snapshot.y)}px, 0)`;
+      walker.dataset.mode = snapshot.mode;
+      sprite.dataset.direction = snapshot.direction === 1 ? "right" : "left";
+      if (snapshot.bubble !== lastBubble) {
+        bubble.textContent = snapshot.bubble ?? "";
+        bubble.dataset.visible = snapshot.bubble === null ? "false" : "true";
+        lastBubble = snapshot.bubble;
+      }
+      if (snapshot.bubble !== null) {
+        positionBubble(snapshot.x, snapshot.y, snapshot.frame, snapshot.mode);
+      }
+      draw(snapshot.frame);
+    };
+
+    const animate = (time: number) => {
+      if (signal.aborted) return;
+      if (previousTime === 0) previousTime = time;
+      const elapsed = Math.min(64, time - previousTime);
+      previousTime = time;
+      render(elapsed);
+      animationFrame = window.requestAnimationFrame(animate);
+    };
+
+    const onResize = () => {
+      updateBounds();
+      render(0);
+    };
+
+    const onMotionPreferenceChange = () => render(0);
+
+    updateBounds();
+    render(0);
+    window.addEventListener("resize", onResize, { signal });
+    reducedMotion.addEventListener("change", onMotionPreferenceChange, { signal });
+
+    void prepareSpriteSheet(signal)
+      .then((prepared) => {
+        if (signal.aborted) return;
+        sheet = prepared;
+        lastFrame = null;
+        walker.dataset.ready = "true";
+        render(0);
+      })
+      .catch((error: unknown) => {
+        if (!signal.aborted) console.error("Could not prepare Miku's sprites", error);
+      });
+
+    animationFrame = window.requestAnimationFrame(animate);
+
+    return () => {
+      persistPosition(controller.savedPosition());
+      controllerRef.current = null;
+      unsubscribeVoice();
+      voicePlayer.stop();
+      voiceTransport.dispose();
+      abortController.abort();
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [visible]);
+
+  const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || controllerRef.current === null) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    dragRef.current = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - bounds.left,
+      offsetY: event.clientY - bounds.top,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    controllerRef.current.startDrag();
+  };
+
+  const moveDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (drag === null || drag.pointerId !== event.pointerId) return;
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) {
+      drag.moved = true;
+    }
+    controllerRef.current?.dragTo(
+      event.clientX - drag.offsetX,
+      event.clientY - drag.offsetY,
+    );
+    event.preventDefault();
+  };
+
+  const finishDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (drag === null || drag.pointerId !== event.pointerId) return;
+    suppressClickRef.current = drag.moved;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    controllerRef.current?.endDrag();
+  };
+
+  const cancelDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    suppressClickRef.current = false;
+    controllerRef.current?.endDrag();
+  };
+
+  const greet = () => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    controllerRef.current?.dispatch({
+      id: crypto.randomUUID(),
+      type: "clicked",
+      at: Date.now(),
+    });
+  };
+
+  return visible ? (
+    <div className="miku-overlay" aria-live="polite" aria-atomic="true">
+      <button
+        ref={walkerRef}
+        className="miku-companion"
+        type="button"
+        aria-label="Hatsune Miku is exploring the app. Say hello."
+        title="Say hi to Miku"
+        onClick={greet}
+        onPointerCancel={cancelDrag}
+        onPointerDown={startDrag}
+        onPointerMove={moveDrag}
+        onPointerUp={finishDrag}
+      >
+        <span ref={bubbleRef} className="miku-bubble" data-visible="false" />
+        <span ref={spriteRef} className="miku-sprite" data-direction="right">
+          <canvas aria-hidden="true" ref={canvasRef} />
+        </span>
+        <span className="miku-shadow" aria-hidden="true" />
+      </button>
+    </div>
+  ) : null;
+}
+
+export default definePluginApp((app) => {
+  app.slots.settingsSection({
+    id: "behavior",
+    title: "Miku’s behavior",
+    description: "Choose whether Miku roams and speaks aloud on this client.",
+    component: BehaviorSettings,
+  });
+  app.slots.settingsSection({
+    id: "brain",
+    title: "Miku’s brain",
+    description: "Choose the hidden thread and execution settings that power her comments.",
+    component: BrainSettings,
+  });
+  app.slots.experimental_appOverlay({
+    id: "walking-miku",
+    component: MikuOverlay,
+  });
+  app.slots.commandPaletteAction({
+    id: "toggle-miku-visibility",
+    title: "Miku: toggle companion visibility",
+    run: () => {
+      toggleMikuVisibility();
+    },
+  });
+  app.slots.commandPaletteAction({
+    id: "toggle-miku-voice",
+    title: "Miku: toggle voice",
+    run: () => {
+      const enabled = toggleMikuVoice();
+      toast.success(enabled ? "Miku's voice is on" : "Miku's voice is muted");
+    },
+  });
+  app.slots.commandPaletteAction({
+    id: "toggle-miku-walking",
+    title: "Miku: toggle walking",
+    run: () => {
+      toggleMikuWalking();
+    },
+  });
+});
