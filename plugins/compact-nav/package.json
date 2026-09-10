@@ -27,7 +27,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/SawyerHood/bb-plugin-compact-nav.git"
+    "url": "git+https://github.com/SawyerHood/sawyer-plugins.git",
+    "directory": "plugins/compact-nav"
   },
   "scripts": {
     "build": "bb plugin build",

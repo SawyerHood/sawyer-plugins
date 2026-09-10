@@ -5,9 +5,10 @@
   "author": "Sawyer Hood",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SawyerHood/bb-plugin-miku.git"
+    "url": "git+https://github.com/SawyerHood/sawyer-plugins.git",
+    "directory": "plugins/miku"
   },
-  "homepage": "https://github.com/SawyerHood/bb-plugin-miku#readme",
+  "homepage": "https://github.com/SawyerHood/sawyer-plugins/tree/main/plugins/miku",
   "type": "module",
   "private": true,
   "engines": {

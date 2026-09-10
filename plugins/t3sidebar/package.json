@@ -6,9 +6,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SawyerHood/bb-plugin-t3sidebar.git"
+    "url": "git+https://github.com/SawyerHood/sawyer-plugins.git",
+    "directory": "plugins/t3sidebar"
   },
-  "homepage": "https://github.com/SawyerHood/bb-plugin-t3sidebar#readme",
+  "homepage": "https://github.com/SawyerHood/sawyer-plugins/tree/main/plugins/t3sidebar",
   "engines": {
     "bb": ">=0.37.0",
     "bbPluginSdk": ">=0.4.3"

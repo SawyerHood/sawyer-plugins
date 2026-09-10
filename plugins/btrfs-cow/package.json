@@ -36,6 +36,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SawyerHood/bb-plugin-btrfs-cow.git"
+    "url": "git+https://github.com/SawyerHood/sawyer-plugins.git",
+    "directory": "plugins/btrfs-cow"
   }
 }

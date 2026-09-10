@@ -6,9 +6,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SawyerHood/bb-plugin-cascade.git"
+    "url": "git+https://github.com/SawyerHood/sawyer-plugins.git",
+    "directory": "plugins/cascade"
   },
-  "homepage": "https://github.com/SawyerHood/bb-plugin-cascade#readme",
+  "homepage": "https://github.com/SawyerHood/sawyer-plugins/tree/main/plugins/cascade",
   "engines": {
     "bb": ">=0.37.0",
     "bbPluginSdk": ">=0.4.3"
