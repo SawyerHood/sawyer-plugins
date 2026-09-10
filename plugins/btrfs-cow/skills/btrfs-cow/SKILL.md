@@ -1,6 +1,6 @@
 ---
 name: btrfs-cow
-description: Use when a thread runs in a "CoW copy" environment (provider id btrfs-cow), or when choosing between worktree and copy-on-write environments on Btrfs/XFS machines.
+description: Use when a thread runs in a "Btrfs Cow" environment (provider id btrfs-cow), or when choosing between worktree and copy-on-write environments on Btrfs/XFS machines.
 ---
 
 # CoW copy environments

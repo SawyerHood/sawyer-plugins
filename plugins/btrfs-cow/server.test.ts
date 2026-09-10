@@ -53,6 +53,7 @@ describe("cow copy provider", () => {
   it("registers with git checkout requirement and per-attempt paths", async () => {
     const { definition } = await load(() => ({ status: "supported", filesystem: "btrfs", mode: "reflink" }));
     expect(definition.id).toBe("btrfs-cow");
+    expect(definition.displayName).toBe("Btrfs Cow");
     expect(definition.requires).toEqual({ gitCheckout: true });
     expect(definition.policy).toEqual({ pathKeys: "per-attempt" });
   });

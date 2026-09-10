@@ -30,7 +30,7 @@ export default async function cowCopyPlugin(bb: BbPluginApi): Promise<void> {
 
   bb.experimental_environments.register({
     id: COW_COPY_ENVIRONMENT_PROVIDER_ID,
-    displayName: "CoW copy",
+    displayName: "Btrfs Cow",
     icon: "Copy",
     requires: { gitCheckout: true },
     policy: { pathKeys: "per-attempt" },

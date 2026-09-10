@@ -66,7 +66,7 @@ bb plugin install .      # on the machine that runs the bb server
 bb plugin install git:https://github.com/SawyerHood/bb-plugin-btrfs-cow.git
 ```
 
-Select **CoW copy** in the environment picker, or
+Select **Btrfs Cow** in the environment picker, or
 `bb thread spawn --environment-provider btrfs-cow`.
 
 ## Develop
