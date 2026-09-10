@@ -36,7 +36,7 @@ describe("createCopy", () => {
       timeoutMs: 60_000,
       progress: { step: (t) => steps.push(t), log: () => {} },
     });
-    expect(result).toMatchObject({ path: target, baseBranch: "main", reused: false });
+    expect(result).toMatchObject({ path: target, baseBranch: "main", mode: "reflink", reused: false });
     expect(await git(["rev-parse", "--abbrev-ref", "HEAD"], target)).toBe("feature/one");
     expect(await git(["rev-parse", "HEAD"], target)).toBe(await git(["rev-parse", "HEAD"], source));
     expect(await readFile(path.join(target, "node_modules", "dep", "index.js"), "utf8")).toBe("// dep\n");
@@ -44,6 +44,7 @@ describe("createCopy", () => {
     expect(JSON.parse(await readFile(completionPathFor(target), "utf8"))).toEqual({
       branch: "feature/one",
       baseBranch: "main",
+      mode: "reflink",
     });
     expect(steps).toEqual(["Reflink-copying checkout", "Creating branch feature/one"]);
     // The source is untouched: still on main, no new branch.

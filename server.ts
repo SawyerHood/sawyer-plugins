@@ -1,5 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { PluginEnvironmentProviderProgress } from "@get-bb/plugin-sdk/environment-provider";
+import { registerCli } from "./cli.js";
 import { cowHostContract, cowHostSignals } from "./contract.js";
 import { COW_COPY_ENVIRONMENT_PROVIDER_ID } from "./provider-id.js";
 
@@ -24,6 +25,8 @@ export default async function cowCopyPlugin(bb: BbPluginApi): Promise<void> {
     if (event.payload.kind === "step") report.step(event.payload.text);
     else report.log(event.payload.text);
   });
+
+  registerCli(bb, host);
 
   bb.experimental_environments.register({
     id: COW_COPY_ENVIRONMENT_PROVIDER_ID,

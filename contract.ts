@@ -5,6 +5,8 @@ const failed = z
   .object({ status: z.literal("failed"), message: z.string().min(1) })
   .strict();
 
+export const copyModeSchema = z.enum(["snapshot", "reflink"]);
+
 export const cowHostContract = defineRpcContract({
   /** Check that source and the plugin's copy root support reflink copies. */
   probe: {
@@ -14,6 +16,7 @@ export const cowHostContract = defineRpcContract({
         .object({
           status: z.literal("supported"),
           filesystem: z.string().min(1),
+          mode: copyModeSchema,
         })
         .strict(),
       z
@@ -41,9 +44,36 @@ export const cowHostContract = defineRpcContract({
           status: z.literal("created"),
           path: z.string().min(1),
           baseBranch: z.string().min(1).nullable(),
+          mode: copyModeSchema,
           copyMs: z.number().int().nonnegative(),
         })
         .strict(),
+      failed,
+    ]),
+  },
+  /** Detailed report for `bb btrfs-cow status`. */
+  status: {
+    input: z.object({ path: z.string().min(1) }).strict(),
+    output: z
+      .object({
+        path: z.string().min(1),
+        exists: z.boolean(),
+        filesystem: z.string().nullable(),
+        isSubvolume: z.boolean(),
+        reflinkSupported: z.boolean(),
+        reflinkMessage: z.string().nullable(),
+        subvolumeDeleteAllowed: z.boolean().nullable(),
+        mode: copyModeSchema.nullable(),
+      })
+      .strict(),
+  },
+  /** Replace a plain checkout directory with a subvolume of the same contents. */
+  convert: {
+    input: z
+      .object({ path: z.string().min(1), timeoutMs: z.number().int().positive() })
+      .strict(),
+    output: z.discriminatedUnion("status", [
+      z.object({ status: z.literal("converted"), path: z.string().min(1) }).strict(),
       failed,
     ]),
   },

@@ -9,7 +9,15 @@ import {
   resolveCopiesRoot,
   resolveTargetPath,
 } from "./host/paths.js";
-import { probeReflink } from "./host/reflink.js";
+import {
+  canDeleteSubvolumes,
+  convertToSubvolume,
+  describeFilesystem,
+  isBtrfs,
+  isSubvolume,
+  probeReflink,
+} from "./host/reflink.js";
+import { stat } from "node:fs/promises";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -80,8 +88,57 @@ export function createCowHostEntry() {
             status: "created",
             path: created.path,
             baseBranch: created.baseBranch,
+            mode: created.mode,
             copyMs: created.copyMs,
           } as const;
+        } catch (error) {
+          if (context.signal.aborted) throw error;
+          return { status: "failed", message: errorMessage(error) } as const;
+        }
+      },
+
+      async status(input, context) {
+        const target = path.resolve(input.path);
+        const copiesRoot = resolveCopiesRoot(context.experimental_paths.dataDir);
+        let exists = false;
+        try {
+          exists = (await stat(target)).isDirectory();
+        } catch {}
+        if (!exists) {
+          return {
+            path: target,
+            exists: false,
+            filesystem: null,
+            isSubvolume: false,
+            reflinkSupported: false,
+            reflinkMessage: `${target} is not a directory`,
+            subvolumeDeleteAllowed: null,
+            mode: null,
+          };
+        }
+        const filesystem = await describeFilesystem(target).catch(() => null);
+        const probe = await probeReflink({ sourcePath: target, copiesRoot });
+        const btrfs = await isBtrfs(target);
+        return {
+          path: target,
+          exists: true,
+          filesystem,
+          isSubvolume: await isSubvolume(target),
+          reflinkSupported: probe.status === "supported",
+          reflinkMessage: probe.status === "supported" ? null : probe.message,
+          subvolumeDeleteAllowed: btrfs ? await canDeleteSubvolumes(copiesRoot) : null,
+          mode: probe.status === "supported" ? probe.mode : null,
+        };
+      },
+
+      async convert(input, context) {
+        try {
+          await convertToSubvolume({
+            path: input.path,
+            timeoutMs: input.timeoutMs,
+            signal: context.signal,
+          });
+          return { status: "converted", path: path.resolve(input.path) } as const;
         } catch (error) {
           if (context.signal.aborted) throw error;
           return { status: "failed", message: errorMessage(error) } as const;

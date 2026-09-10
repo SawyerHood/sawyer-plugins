@@ -3,7 +3,13 @@ import { access, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { currentBranch, git, hasLocalBranch, readRepositoryState } from "./git.js";
 import { CancelledError, throwIfAborted } from "./process.js";
-import { reflinkCopyTree } from "./reflink.js";
+import {
+  deleteSubvolume,
+  isSubvolume,
+  reflinkCopyTree,
+  snapshotSubvolume,
+  type CopyMode,
+} from "./reflink.js";
 
 export type BranchMode = "reset" | "reuse-existing";
 
@@ -29,7 +35,7 @@ async function exists(target: string): Promise<boolean> {
 
 async function readCompletion(
   completionPath: string,
-): Promise<{ branch: string; baseBranch: string | null } | null> {
+): Promise<{ branch: string; baseBranch: string | null; mode: CopyMode } | null> {
   try {
     const parsed: unknown = JSON.parse(await readFile(completionPath, "utf8"));
     if (
@@ -42,7 +48,9 @@ async function readCompletion(
         "baseBranch" in parsed && typeof parsed.baseBranch === "string"
           ? parsed.baseBranch
           : null;
-      return { branch: parsed.branch, baseBranch };
+      const mode: CopyMode =
+        "mode" in parsed && parsed.mode === "snapshot" ? "snapshot" : "reflink";
+      return { branch: parsed.branch, baseBranch, mode };
     }
   } catch {}
   return null;
@@ -72,6 +80,7 @@ export interface CreateCopyArgs {
 export interface CreateCopyResult {
   path: string;
   baseBranch: string | null;
+  mode: CopyMode;
   copyMs: number;
   reused: boolean;
 }
@@ -96,6 +105,7 @@ export async function createCopy(args: CreateCopyArgs): Promise<CreateCopyResult
     return {
       path: args.targetPath,
       baseBranch: completed.baseBranch,
+      mode: completed.mode,
       copyMs: 0,
       reused: true,
     };
@@ -123,17 +133,28 @@ export async function createCopy(args: CreateCopyArgs): Promise<CreateCopyResult
 
   const baseBranch = await currentBranch(args.sourcePath, { signal: args.signal });
 
-  args.progress?.step("Reflink-copying checkout");
+  // A checkout that is itself a Btrfs subvolume can be snapshotted in
+  // constant time; anything else is reflinked file by file.
+  const mode: CopyMode = (await isSubvolume(args.sourcePath))
+    ? "snapshot"
+    : "reflink";
+  args.progress?.step(
+    mode === "snapshot" ? "Snapshotting checkout" : "Reflink-copying checkout",
+  );
   const startedAt = Date.now();
   try {
-    await reflinkCopyTree({
+    const copyArgs = {
       sourcePath: args.sourcePath,
       targetPath: args.targetPath,
       timeoutMs: args.timeoutMs,
       signal: args.signal,
-    });
+    };
+    if (mode === "snapshot") await snapshotSubvolume(copyArgs);
+    else await reflinkCopyTree(copyArgs);
     const copyMs = Date.now() - startedAt;
-    args.progress?.log(`Copied ${args.sourcePath} in ${copyMs}ms`);
+    args.progress?.log(
+      `${mode === "snapshot" ? "Snapshotted" : "Copied"} ${args.sourcePath} in ${copyMs}ms`,
+    );
 
     throwIfAborted(args.signal);
     const reuse =
@@ -157,10 +178,10 @@ export async function createCopy(args: CreateCopyArgs): Promise<CreateCopyResult
     );
     await writeFile(
       completionPath,
-      `${JSON.stringify({ branch: args.branchName, baseBranch })}\n`,
+      `${JSON.stringify({ branch: args.branchName, baseBranch, mode })}\n`,
       "utf8",
     );
-    return { path: args.targetPath, baseBranch, copyMs, reused: false };
+    return { path: args.targetPath, baseBranch, mode, copyMs, reused: false };
   } catch (error) {
     if (!(error instanceof CancelledError)) {
       await removeCopy({ path: args.targetPath }).catch(() => {});
@@ -180,7 +201,11 @@ export async function removeCopy(args: {
   const existed = await exists(target);
   if (existed) {
     await experimental_killProcessesWithCwdUnder({ directory: target });
-    await rm(target, { recursive: true, force: true });
+    if (await isSubvolume(target)) {
+      await deleteSubvolume({ path: target, signal: args.signal });
+    } else {
+      await rm(target, { recursive: true, force: true });
+    }
   }
   if (args.pruneEmptyParent) await removeDirectoryIfEmpty(path.dirname(target));
   return existed;

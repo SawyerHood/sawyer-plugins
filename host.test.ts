@@ -47,7 +47,7 @@ describe("host entry", () => {
 
   it("probes support", async () => {
     const result = await entry.handlers.probe({ sourcePath: source }, makeContext(dataDir));
-    expect(result).toEqual({ status: "supported", filesystem: "btrfs" });
+    expect(result).toEqual({ status: "supported", filesystem: "btrfs", mode: "reflink" });
   });
 
   it("creates under copies/<pathKey>/<repo> and streams progress", async () => {
@@ -67,6 +67,7 @@ describe("host entry", () => {
       status: "created",
       path: path.join(dataDir, "copies", "key1", "my-repo"),
       baseBranch: "main",
+      mode: "reflink",
     });
     expect(signals.map((s) => s.kind)).toContain("step");
     expect(signals.every((s) => s.operationId === "op1")).toBe(true);
@@ -111,5 +112,36 @@ describe("host entry", () => {
     );
     expect(result.status).toBe("failed");
     expect(await exists(path.join(source, "README.md"))).toBe(true);
+  });
+});
+
+describe("status and convert handlers", () => {
+  let root: string;
+  let dataDir: string;
+  const entry = createCowHostEntry();
+  beforeEach(async () => {
+    root = await makeTestRoot();
+    dataDir = path.join(root, "data");
+    await mkdir(dataDir);
+  });
+  afterEach(async () => {
+    await removeTestRoot(root);
+  });
+
+  it("reports reflink mode before conversion and snapshot mode after", async () => {
+    const source = await makeSourceRepo(root);
+    const before = await entry.handlers.status({ path: source }, makeContext(dataDir));
+    expect(before).toMatchObject({ exists: true, filesystem: "btrfs", isSubvolume: false, reflinkSupported: true, mode: "reflink" });
+    expect(typeof before.subvolumeDeleteAllowed).toBe("boolean");
+    const converted = await entry.handlers.convert({ path: source, timeoutMs: 60_000 }, makeContext(dataDir));
+    expect(converted).toEqual({ status: "converted", path: source });
+    const after = await entry.handlers.status({ path: source }, makeContext(dataDir));
+    expect(after).toMatchObject({ isSubvolume: true, mode: "snapshot" });
+  });
+
+  it("reports a missing path and a failed convert without throwing", async () => {
+    const missing = path.join(root, "missing");
+    expect(await entry.handlers.status({ path: missing }, makeContext(dataDir))).toMatchObject({ exists: false, mode: null });
+    expect((await entry.handlers.convert({ path: missing, timeoutMs: 60_000 }, makeContext(dataDir))).status).toBe("failed");
   });
 });

@@ -18,7 +18,7 @@ describe("probeReflink", () => {
     const source = path.join(root, "src");
     await mkdir(source);
     const result = await probeReflink({ sourcePath: source, copiesRoot: path.join(root, "copies") });
-    expect(result).toEqual({ status: "supported", filesystem: "btrfs" });
+    expect(result).toEqual({ status: "supported", filesystem: "btrfs", mode: "reflink" });
     expect(await readdir(source)).toEqual([]);
     expect(await readdir(path.join(root, "copies"))).toEqual([]);
   });

@@ -10,6 +10,8 @@ async function load(callImpl: (method: string, input: unknown) => unknown) {
   let signalHandler: ((event: { hostId: string; payload: unknown }) => void) | undefined;
   const call = vi.fn(async (method: string, input: unknown) => callImpl(method, input));
   const bb = {
+    cli: { register: vi.fn() },
+    sdk: { hosts: { list: async () => [{ id: "host_1", name: "box" }] } },
     hosts: {
       experimental_client: () => ({
         call,
@@ -49,7 +51,7 @@ const baseCreateContext = {
 
 describe("cow copy provider", () => {
   it("registers with git checkout requirement and per-attempt paths", async () => {
-    const { definition } = await load(() => ({ status: "supported", filesystem: "btrfs" }));
+    const { definition } = await load(() => ({ status: "supported", filesystem: "btrfs", mode: "reflink" }));
     expect(definition.id).toBe("btrfs-cow");
     expect(definition.requires).toEqual({ gitCheckout: true });
     expect(definition.policy).toEqual({ pathKeys: "per-attempt" });
@@ -69,7 +71,7 @@ describe("cow copy provider", () => {
     const { definition, call, emit } = await load((method) => {
       if (method === "create") {
         emitDuringCreate?.();
-        return { status: "created", path: "/data/copies/pk/repo", baseBranch: "main", copyMs: 12 };
+        return { status: "created", path: "/data/copies/pk/repo", baseBranch: "main", mode: "reflink", copyMs: 12 };
       }
       return undefined;
     });
@@ -86,7 +88,7 @@ describe("cow copy provider", () => {
   });
 
   it("reuses the previous branch on rebuild", async () => {
-    const { definition, call } = await load(() => ({ status: "created", path: "/p", baseBranch: null, copyMs: 0 }));
+    const { definition, call } = await load(() => ({ status: "created", path: "/p", baseBranch: null, mode: "snapshot", copyMs: 0 }));
     const result = await definition.create({
       ...baseCreateContext,
       rebuild: true,
