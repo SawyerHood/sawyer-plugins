@@ -2,7 +2,8 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  padding: 6px 8px 2px;
+  /* Match the host sidebar toggle's 12px left inset. */
+  padding: 6px 8px 2px 12px;
 }
 [data-testid="sidebar-navigation-region"]:has(.compact-icon-navigation) + [data-testid="app-sidebar-navigation-divider"] {
   display: none;
