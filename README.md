@@ -9,6 +9,7 @@ Sawyer Hood's [BB](https://getbb.app) plugins, in one repository. Every plugin l
 | CoW copy | [`plugins/btrfs-cow`](plugins/btrfs-cow) | An environment provider that uses copy-on-write reflink copies instead of git worktrees (Btrfs/XFS). |
 | Miku Companion | [`plugins/miku`](plugins/miku) | An event-aware Hatsune Miku companion and theme. |
 | OpenRouter Inference | [`plugins/openrouter-inference`](plugins/openrouter-inference) | Thread titles and commit messages from any OpenRouter model, with your own API key. |
+| Quick Chat | [`plugins/quick-chat`](plugins/quick-chat) | A floating chat window for quick, projectless questions. |
 | SlopCop | [`plugins/slopcop`](plugins/slopcop) | Automated GitHub issue and PR rules that dispatch BB agents. |
 | T3 Sidebar | [`plugins/t3sidebar`](plugins/t3sidebar) | An inbox-style sidebar for BB threads. |
 

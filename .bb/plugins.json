@@ -8,6 +8,7 @@
     { "name": "compact-nav", "source": "./plugins/compact-nav" },
     { "name": "miku", "source": "./plugins/miku" },
     { "name": "openrouter-inference", "source": "./plugins/openrouter-inference" },
+    { "name": "quick-chat", "source": "./plugins/quick-chat" },
     { "name": "slopcop", "source": "./plugins/slopcop" },
     { "name": "t3sidebar", "source": "./plugins/t3sidebar" }
   ]
