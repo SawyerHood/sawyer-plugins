@@ -2,6 +2,8 @@
 
 Compact Nav replaces navigation rows with borderless icon buttons and removes the divider beneath them. Desktop buttons are 28px with 16px icons and 4px gaps; touch devices use 40px buttons. Hover labels and selected states help identify each destination.
 
+Icons use their own row by default. Enable **Place icons beside sidebar toggle** in the plugin's settings to fit them between the toggle and back/forward arrows, wrapping onto additional rows when needed. If the header has no room, navigation stays in its own row below.
+
 ## Keep your navigation preferences
 
 Your existing order and hidden items carry over. Open **More (…) → Customize sidebar** to reorder destinations and choose which ones appear. Hidden destinations remain available from More. BB continues to handle navigation, icons, and split gestures.

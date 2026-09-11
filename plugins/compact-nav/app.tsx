@@ -1,8 +1,61 @@
-import { definePluginApp, type ExperimentalSidebarNavigationProps } from "@get-bb/plugin-sdk/app";
+import { definePluginApp, useSettings, type ExperimentalSidebarNavigationProps } from "@get-bb/plugin-sdk/app";
+import { useLayoutEffect, useRef } from "react";
 import "./app.css";
 
 function IconNavigation({ experimental_Original: Original }: ExperimentalSidebarNavigationProps) {
-  return <div className="compact-icon-navigation"><Original /></div>;
+  const root = useRef<HTMLDivElement>(null);
+  const settings = useSettings();
+  const inlineHeader = settings.values?.inlineHeader === true;
+
+  useLayoutEffect(() => {
+    if (!inlineHeader) return;
+    const element = root.current;
+    const region = element?.closest('[data-testid="sidebar-navigation-region"]');
+    const header = region?.previousElementSibling;
+    const trigger = document.querySelector<HTMLElement>('[data-sidebar="trigger"]');
+    const history = header?.firstElementChild;
+    if (!element || !header?.matches('[data-testid="app-sidebar-top-reserve-row"]') || !trigger || !history) return;
+
+    // Measure the host controls so desktop chrome, touch targets, and sidebar
+    // resizing all leave the actual available space for navigation.
+    const update = () => {
+      const row = header.getBoundingClientRect();
+      const toggle = trigger.getBoundingClientRect();
+      const arrows = history.getBoundingClientRect();
+      const button = element.querySelector('[data-sidebar-navigation-item] > button');
+      const size = button?.getBoundingClientRect().width || 28;
+      const start = Math.max(12, toggle.right - row.left + 4);
+      const end = Math.max(8, row.right - arrows.left + 4);
+      if (!row.height || !toggle.width || row.width - start - end < size) {
+        delete element.dataset.headerPlacement;
+        return;
+      }
+      element.style.setProperty('--compact-nav-header-height', `${row.height}px`);
+      element.style.setProperty('--compact-nav-button-size', `${size}px`);
+      element.style.setProperty('--compact-nav-start', `${start}px`);
+      element.style.setProperty('--compact-nav-end', `${end}px`);
+      element.style.setProperty('--compact-nav-top', `${Math.max(0, toggle.top - row.top + (toggle.height - size) / 2)}px`);
+      element.dataset.headerPlacement = '';
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(header);
+    observer.observe(trigger);
+    observer.observe(history);
+    const onTransitionEnd = (event: TransitionEvent) => {
+      if (event.target instanceof Element && (event.target.contains(header) || event.target.contains(trigger))) update();
+    };
+    window.addEventListener('resize', update);
+    document.addEventListener('transitionend', onTransitionEnd);
+    update();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+      document.removeEventListener('transitionend', onTransitionEnd);
+      delete element.dataset.headerPlacement;
+    };
+  }, [inlineHeader]);
+
+  return <div ref={root} className="compact-icon-navigation"><Original /></div>;
 }
 
 export default definePluginApp(app => {

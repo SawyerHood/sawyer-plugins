@@ -1,3 +1,41 @@
+[data-testid="sidebar-navigation-region"]:has(.compact-icon-navigation):not(:has([data-sidebar-navigation-customize-mode])) {
+  display: flow-root;
+  flex-shrink: 0;
+}
+.compact-icon-navigation[data-header-placement]:not(:has([data-sidebar-navigation-customize-mode])) {
+  position: relative;
+  display: flow-root;
+  margin-top: calc(-1 * var(--compact-nav-header-height));
+  padding: var(--compact-nav-top) 8px 0 12px;
+  min-height: var(--compact-nav-header-height);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.compact-icon-navigation[data-header-placement]:not(:has([data-sidebar-navigation-customize-mode]))::before {
+  content: "";
+  float: left;
+  width: calc(var(--compact-nav-start) - 12px);
+  height: var(--compact-nav-button-size);
+}
+.compact-icon-navigation[data-header-placement] [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode]) {
+  display: block;
+  padding: 0 0 2px;
+  line-height: 0;
+}
+/* Floats reserve only the first line; subsequent lines use the full width. */
+.compact-icon-navigation[data-header-placement] [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode])::before {
+  content: "";
+  float: right;
+  width: calc(var(--compact-nav-end) - 8px);
+  height: var(--compact-nav-button-size);
+}
+.compact-icon-navigation[data-header-placement] [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode]) > :is([data-sidebar-navigation-item], [data-testid="sidebar-navigation-more-row"]) {
+  display: inline-flex;
+  vertical-align: top;
+  margin: 0 4px 4px 0;
+  pointer-events: auto;
+}
 .compact-icon-navigation [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode]) {
   display: flex;
   flex-wrap: wrap;

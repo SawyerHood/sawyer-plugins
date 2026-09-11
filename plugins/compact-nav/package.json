@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-compact-nav",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "engines": {
     "bb": ">=0.42",
@@ -18,9 +18,11 @@
   },
   "devDependencies": {
     "@get-bb/plugin-sdk": "0.4.53",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "hono": "^4.13.7",
     "typescript": "^5.7.0",
     "zod": "^4.6.1"
   },
