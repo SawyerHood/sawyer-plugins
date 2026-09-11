@@ -10,11 +10,11 @@ function browserStorage(): VoiceStorage | null {
 }
 
 export function readMikuVoice(storage: VoiceStorage | null = browserStorage()): boolean {
-  if (sessionOnly) return sessionPreference ?? true;
+  if (sessionOnly) return sessionPreference ?? false;
   try {
-    if (storage) return storage.getItem(MIKU_VOICE_STORAGE_KEY) !== "muted";
+    if (storage) return storage.getItem(MIKU_VOICE_STORAGE_KEY) === "speaking";
   } catch { /* Keep the toggle usable when storage is blocked. */ }
-  return sessionPreference ?? true;
+  return sessionPreference ?? false;
 }
 
 export function setMikuVoice(enabled: boolean, storage: VoiceStorage | null = browserStorage()): void {
@@ -41,7 +41,7 @@ export function subscribeToMikuVoice(listener: (enabled: boolean) => void): () =
   };
   const onStorage = (event: StorageEvent) => {
     if (event.key === MIKU_VOICE_STORAGE_KEY || event.key === null) {
-      sessionPreference = event.newValue !== "muted";
+      sessionPreference = event.newValue === "speaking";
       sessionOnly = false;
       listener(sessionPreference);
     }

@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-miku",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "An agent-powered Hatsune Miku companion for BB.",
   "author": "Sawyer Hood",
   "repository": {

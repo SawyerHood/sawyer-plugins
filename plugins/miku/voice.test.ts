@@ -1,17 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MikuVoicePlayer } from "./voice-player";
 import { MikuVoiceService, readVoiceRequest, renderVoice, speechText } from "./voice-server";
-import { MIKU_VOICE_STORAGE_KEY, readMikuVoice, setMikuVoice } from "./voice-preference";
+import { MIKU_VOICE_STORAGE_KEY, readMikuVoice, setMikuVoice, subscribeToMikuVoice } from "./voice-preference";
 import { CompanionController } from "./companion";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("voice preferences", () => {
-  it("defaults on, persists mute, and restores on", () => {
+  it("defaults off, persists mute, and preserves explicit voice opt-in", () => {
     const values = new Map<string, string>();
     const storage = { getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => { values.set(key, value); } };
-    expect(readMikuVoice(storage)).toBe(true);
+    expect(readMikuVoice(storage)).toBe(false);
+    expect(readMikuVoice(null)).toBe(false);
+    expect(readMikuVoice({ ...storage, getItem: () => { throw new Error("blocked"); } })).toBe(false);
+    values.set(MIKU_VOICE_STORAGE_KEY, "unknown");
+    expect(readMikuVoice(storage)).toBe(false);
     setMikuVoice(false, storage);
     expect(values.get(MIKU_VOICE_STORAGE_KEY)).toBe("muted");
     expect(readMikuVoice(storage)).toBe(false);
@@ -25,6 +29,26 @@ describe("voice preferences", () => {
     expect(readMikuVoice(storage)).toBe(false);
     setMikuVoice(true, storage);
     expect(readMikuVoice(storage)).toBe(true);
+  });
+
+  it("returns to muted when another tab removes or clears the saved preference", () => {
+    const windowEvents = new EventTarget();
+    vi.stubGlobal("window", windowEvents);
+    const listener = vi.fn();
+    const unsubscribe = subscribeToMikuVoice(listener);
+    try {
+      for (const key of [MIKU_VOICE_STORAGE_KEY, null]) {
+        windowEvents.dispatchEvent(Object.assign(new Event("storage"), {
+          key: MIKU_VOICE_STORAGE_KEY, newValue: "speaking",
+        }));
+        expect(listener).toHaveBeenLastCalledWith(true);
+        windowEvents.dispatchEvent(Object.assign(new Event("storage"), { key, newValue: null }));
+        expect(listener).toHaveBeenLastCalledWith(false);
+        expect(readMikuVoice(null)).toBe(false);
+      }
+    } finally {
+      unsubscribe();
+    }
   });
 });
 

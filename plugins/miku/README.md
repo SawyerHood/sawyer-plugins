@@ -70,7 +70,7 @@ the Miku settings page for inspection.
 
 ## Voice
 
-Enable **Speak aloud** in Miku's settings to hear her text bubbles in a
+Voice is off by default. Enable **Speak aloud** in Miku's settings to hear her text bubbles in a
 musical synthesized voice. Voice runs locally and requires FFmpeg with Flite
 and Rubber Band support on the BB server. Click in BB once to enable browser
 audio. Mute her from settings or **Miku: toggle voice** in the command palette;
