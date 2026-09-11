@@ -2,7 +2,7 @@
 
 A BB plugin that turns the main sidebar navigation into compact, borderless icon buttons.
 
-- 28px buttons with 16px icons and 4px gaps; 40px buttons on touch devices.
+- 28px buttons with 16px icons and 4px gaps. Mobile touch controls match BB's header: 36px buttons with 20px icons; larger touch screens use 40px buttons.
 - Optional header layout places icons beside the sidebar toggle, wrapping extra icons below.
 - Native BB icons, saved order, hidden items, navigation, and split gestures.
 - Accessible labels, hover titles, and selected states.

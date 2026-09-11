@@ -1,3 +1,7 @@
+.compact-icon-navigation {
+  --compact-nav-target-size: 28px;
+  --compact-nav-icon-size: 16px;
+}
 [data-testid="sidebar-navigation-region"]:has(.compact-icon-navigation):not(:has([data-sidebar-navigation-customize-mode])) {
   display: flow-root;
   flex-shrink: 0;
@@ -47,16 +51,16 @@
   display: none;
 }
 .compact-icon-navigation [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode]) > :is([data-sidebar-navigation-item], [data-testid="sidebar-navigation-more-row"]) {
-  width: 28px;
-  height: 28px;
+  width: var(--compact-nav-target-size);
+  height: var(--compact-nav-target-size);
   margin: 0;
-  flex: 0 0 28px;
+  flex: 0 0 var(--compact-nav-target-size);
 }
 .compact-icon-navigation [data-sidebar-navigation-item] > button,
 .compact-icon-navigation [data-testid="sidebar-navigation-more-row"] > button {
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
+  width: var(--compact-nav-target-size);
+  height: var(--compact-nav-target-size);
+  min-height: var(--compact-nav-target-size);
   padding: 0;
   gap: 0;
   justify-content: center;
@@ -77,9 +81,10 @@
   border: 0;
 }
 .compact-icon-navigation [data-sidebar-navigation-item] > button > svg,
+.compact-icon-navigation [data-testid="sidebar-navigation-more-row"] > button > svg,
 .compact-icon-navigation [data-sidebar-navigation-item] > button > [data-plugin-icon-asset] {
-  width: 16px;
-  height: 16px;
+  width: var(--compact-nav-icon-size);
+  height: var(--compact-nav-icon-size);
 }
 .compact-icon-navigation [data-sidebar-navigation-item] > :is(div,span) { display: none; }
 .compact-icon-navigation [data-sidebar-navigation-item] > button[aria-current="page"] {
@@ -87,9 +92,14 @@
   background: var(--sidebar-accent);
 }
 @media (pointer: coarse) {
-  .compact-icon-navigation [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode]) > :is([data-sidebar-navigation-item], [data-testid="sidebar-navigation-more-row"]) {
-    width: 40px; height: 40px; flex-basis: 40px;
+  .compact-icon-navigation {
+    --compact-nav-target-size: 40px;
   }
-  .compact-icon-navigation [data-sidebar-navigation-item] > button,
-  .compact-icon-navigation [data-testid="sidebar-navigation-more-row"] > button { width: 40px; height: 40px; }
+}
+/* Match BB's compact touch header controls, including the sidebar toggle. */
+@media (width < 48rem) and (pointer: coarse) {
+  .compact-icon-navigation {
+    --compact-nav-target-size: 36px;
+    --compact-nav-icon-size: 20px;
+  }
 }

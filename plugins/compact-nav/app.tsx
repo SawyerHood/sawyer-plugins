@@ -41,6 +41,9 @@ function IconNavigation({ experimental_Original: Original }: ExperimentalSidebar
     observer.observe(header);
     observer.observe(trigger);
     observer.observe(history);
+    // CSS can resize the navigation after mount (for example on a touch
+    // device or during a plugin reload). Recalculate its vertical centering.
+    observer.observe(element);
     const onTransitionEnd = (event: TransitionEvent) => {
       if (event.target instanceof Element && (event.target.contains(header) || event.target.contains(trigger))) update();
     };
