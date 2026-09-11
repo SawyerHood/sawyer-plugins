@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { clampPosition, isDoublePress, parseStoredPosition } from "./window-position";
+import {
+  anchorFromPosition,
+  anchorStyle,
+  clampAnchor,
+  clampPosition,
+  isDoublePress,
+  parseStoredAnchor,
+} from "./window-position";
 
 const size = { width: 560, height: 680 };
 const viewport = { width: 1440, height: 900 };
@@ -22,12 +29,76 @@ describe("clampPosition", () => {
   });
 });
 
-describe("parseStoredPosition", () => {
-  it("accepts finite coordinates and rejects anything else", () => {
-    expect(parseStoredPosition('{"x":12,"y":34}')).toEqual({ x: 12, y: 34 });
-    expect(parseStoredPosition(null)).toBeNull();
-    expect(parseStoredPosition("not json")).toBeNull();
-    expect(parseStoredPosition('{"x":"12","y":34}')).toBeNull();
+describe("anchorFromPosition", () => {
+  it("anchors to the edges nearest the window's center", () => {
+    expect(anchorFromPosition({ x: 100, y: 60 }, size, viewport)).toEqual({
+      horizontal: "left",
+      vertical: "top",
+      x: 100,
+      y: 60,
+    });
+    // Right edge at 1440 - 700 - 560 = 180; bottom edge at 900 - 150 - 680 = 70.
+    expect(anchorFromPosition({ x: 700, y: 150 }, size, viewport)).toEqual({
+      horizontal: "right",
+      vertical: "bottom",
+      x: 180,
+      y: 70,
+    });
+  });
+
+  it("locks a window dropped near an edge flush against it", () => {
+    expect(anchorFromPosition({ x: 20, y: 8 }, size, viewport)).toMatchObject({
+      horizontal: "left",
+      vertical: "top",
+      x: 16,
+      y: 16,
+    });
+    expect(anchorFromPosition({ x: 872, y: 212 }, size, viewport)).toMatchObject({
+      horizontal: "right",
+      vertical: "bottom",
+      x: 16,
+      y: 16,
+    });
+  });
+});
+
+describe("clampAnchor", () => {
+  const anchor = { horizontal: "right", vertical: "bottom", x: 400, y: 150 } as const;
+
+  it("keeps offsets that still fit", () => {
+    expect(clampAnchor(anchor, size, viewport)).toEqual(anchor);
+  });
+
+  it("pulls offsets in when the viewport shrinks", () => {
+    expect(clampAnchor(anchor, size, { width: 800, height: 760 })).toEqual({
+      ...anchor,
+      x: 232,
+      y: 72,
+    });
+  });
+});
+
+describe("anchorStyle", () => {
+  it("positions from the anchored edges and releases the others", () => {
+    expect(anchorStyle({ horizontal: "right", vertical: "top", x: 16, y: 40 })).toEqual({
+      left: "auto",
+      right: 16,
+      top: 40,
+      bottom: "auto",
+    });
+  });
+});
+
+describe("parseStoredAnchor", () => {
+  it("accepts a well-formed anchor and rejects anything else", () => {
+    const stored = { horizontal: "left", vertical: "bottom", x: 16, y: 40 };
+    expect(parseStoredAnchor(JSON.stringify(stored))).toEqual(stored);
+    expect(parseStoredAnchor(null)).toBeNull();
+    expect(parseStoredAnchor("not json")).toBeNull();
+    expect(parseStoredAnchor('{"x":12,"y":34}')).toBeNull();
+    expect(
+      parseStoredAnchor('{"horizontal":"middle","vertical":"top","x":1,"y":2}'),
+    ).toBeNull();
   });
 });
 
