@@ -17,7 +17,6 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import {
   formatRelativeTime,
-  isQuickChatShortcut,
   quickChat,
   useQuickChatState,
 } from "@/lib/quick-chat-store";
@@ -164,6 +163,58 @@ function NewChatView({ focusRequest }: { focusRequest: number }) {
   );
 }
 
+function ChatView({
+  threadId,
+  focusRequest,
+}: {
+  threadId: string;
+  focusRequest: number;
+}) {
+  // ThreadChat only focuses when focusRequest changes after its composer
+  // mounts, and it keeps the composer hidden while pending interactions load,
+  // so a request made on open is spent before the editor can take focus.
+  // Bump the request once the editor is visible.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [composerShown, setComposerShown] = useState(0);
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container === null) return;
+    const editorVisible = () =>
+      container
+        .querySelector<HTMLElement>('[contenteditable="true"]')
+        ?.checkVisibility() === true;
+    if (editorVisible()) {
+      setComposerShown(1);
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if (!editorVisible()) return;
+      observer.disconnect();
+      setComposerShown(1);
+    });
+    observer.observe(container, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["hidden", "class", "style"],
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="h-full min-h-0">
+      <ThreadChat
+        threadId={threadId}
+        variant="compact"
+        layout="contained"
+        permissionPolicy="editable"
+        focusRequest={focusRequest + composerShown}
+        className="h-full min-h-0"
+      />
+    </div>
+  );
+}
+
 function useChatTitle(threadId: string | null): string | null {
   const rpc = useRpc<typeof quickChatRpcContract>();
   const [title, setTitle] = useState<string | null>(null);
@@ -256,14 +307,10 @@ function QuickChatWindow({
         {threadId === null ? (
           <NewChatView focusRequest={focusRequest} />
         ) : (
-          <ThreadChat
+          <ChatView
             key={threadId}
             threadId={threadId}
-            variant="compact"
-            layout="contained"
-            permissionPolicy="editable"
             focusRequest={focusRequest}
-            className="h-full min-h-0"
           />
         )}
       </div>
@@ -273,20 +320,6 @@ function QuickChatWindow({
 
 function QuickChatOverlay() {
   const { open, threadId, focusRequest } = useQuickChatState();
-
-  useEffect(() => {
-    const isMac = /mac|iphone|ipad/i.test(navigator.platform);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!isQuickChatShortcut(event, isMac)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      quickChat.toggle();
-    };
-    // Capture phase so editors and terminals cannot swallow the shortcut.
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () =>
-      window.removeEventListener("keydown", onKeyDown, { capture: true });
-  }, []);
 
   if (!open) return null;
   // ThreadChat's controls use tooltips, and the app overlay slot mounts
@@ -304,12 +337,18 @@ export default definePluginApp((app) => {
     id: "quick-chat",
     component: QuickChatOverlay,
   });
-  app.slots.commandPaletteAction({
+  app.commands.register({
+    id: "toggle",
+    title: "Quick chat: toggle",
+    defaultShortcut: { key: "k", mod: true, shift: true },
+    run: () => quickChat.toggle(),
+  });
+  app.commands.register({
     id: "open",
     title: "Quick chat: open",
     run: () => quickChat.open(),
   });
-  app.slots.commandPaletteAction({
+  app.commands.register({
     id: "new-chat",
     title: "Quick chat: new chat",
     run: () => quickChat.newChat(),

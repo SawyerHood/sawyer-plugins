@@ -2,8 +2,8 @@
 
 A BB plugin that gives you a floating chat window for quick questions that don't belong to a project.
 
-- Press **Mod+Shift+K** (Cmd on macOS, Ctrl elsewhere) to open or close it from anywhere in BB.
-- Or run **Quick chat: open** or **Quick chat: new chat** from the command palette (Mod+Shift+P), or click the chat icon in the sidebar footer.
+- Press **Mod+Shift+K** (Cmd on macOS, Ctrl elsewhere) to open or close it from anywhere in BB. You can rebind **Quick chat: toggle** in Settings → Keyboard.
+- Or run **Quick chat: open** or **Quick chat: new chat** from the command palette (Mod+Shift+P), or click the chat icon in the sidebar footer. Each command can also be bound to a shortcut.
 - Drag the window by its title bar. It stays anchored to the nearest corner, so resizing BB keeps it the same distance from those edges, and dropping it near an edge locks it flush. Double-click the title bar to send it back to the bottom-right corner.
 - Pick up a recent chat from the list above the composer.
 - Click **Open as thread** to move a chat into the sidebar as a normal thread.

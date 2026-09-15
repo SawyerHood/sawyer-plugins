@@ -1,5 +1,5 @@
-// Window-local quick chat state shared by the overlay, the keyboard shortcut,
-// the palette command, and the sidebar footer action.
+// Window-local quick chat state shared by the overlay, the plugin commands,
+// and the sidebar footer action.
 import { useSyncExternalStore } from "react";
 
 export interface QuickChatState {
@@ -77,20 +77,6 @@ export function useQuickChatState(): QuickChatState {
     () => state,
     () => state,
   );
-}
-
-/** Mod+Shift+K: Cmd on macOS, Ctrl elsewhere. */
-export function isQuickChatShortcut(
-  event: Pick<
-    KeyboardEvent,
-    "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey"
-  >,
-  isMac: boolean,
-): boolean {
-  const mod = isMac
-    ? event.metaKey && !event.ctrlKey
-    : event.ctrlKey && !event.metaKey;
-  return mod && event.shiftKey && !event.altKey && event.code === "KeyK";
 }
 
 export function formatRelativeTime(timestamp: number, now: number): string {
