@@ -26,6 +26,10 @@
     "contract.ts",
     "openrouter.ts",
     "openrouter.test.ts",
+    "host.test.ts",
+    "test-audio.ts",
+    "vitest.config.ts",
+    "vitest.setup.ts",
     "app.tsx",
     "components",
     "lib"

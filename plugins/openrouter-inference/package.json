@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-openrouter-inference",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "engines": {
     "bb": ">=0.42",
@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "OpenRouter Inference",
-    "description": "Generate thread titles and commit messages with any OpenRouter model using your own API key.",
+    "description": "Generate thread titles and commit messages, and transcribe voice input, with OpenRouter models using your own API key.",
     "branding": {
       "icon": "./assets/icon.svg"
     },

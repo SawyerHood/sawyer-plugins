@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { definePluginApp, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
+import type { ServiceKind } from "./contract";
 import type { ModelOption, rpcContract, Status } from "./server";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -8,8 +9,29 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const MAX_VISIBLE_MODELS = 200;
-/** BB's per-attempt budget for title and commit-message inference. */
-const HELPER_TIMEOUT_MS = 5_000;
+
+const SERVICES: Record<
+  ServiceKind,
+  { label: string; useLabel: string; limitMs: number; slowNote: string; showPricing: boolean }
+> = {
+  inference: {
+    label: "Titles & commit messages",
+    useLabel: "Use for titles & commit messages",
+    /** BB's per-attempt budget for title and commit-message inference. */
+    limitMs: 5_000,
+    slowNote: "slower than BB's 5s limit for titles",
+    showPricing: true,
+  },
+  voice: {
+    label: "Voice transcription",
+    useLabel: "Use for voice transcription",
+    /** BB's per-attempt budget for voice transcription. */
+    limitMs: 10_000,
+    slowNote: "slower than BB's 10s limit for voice input",
+    // Speech-to-text prices mix per-token, per-second, and per-minute units.
+    showPricing: false,
+  },
+};
 
 function messageOf(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -28,7 +50,8 @@ function formatContext(tokens: number | null): string | null {
   return tokens >= 1_000_000 ? `${Math.round(tokens / 100_000) / 10}M ctx` : `${Math.round(tokens / 1000)}K ctx`;
 }
 
-function OpenRouterSettings() {
+function ServiceSettings({ kind }: { kind: ServiceKind }) {
+  const service = SERVICES[kind];
   const rpc = useRpc<typeof rpcContract>();
   const [status, setStatus] = useState<Status | null>(null);
   const [models, setModels] = useState<ModelOption[] | null>(null);
@@ -44,12 +67,12 @@ function OpenRouterSettings() {
   const loadModels = useCallback(
     (refresh: boolean) => {
       setModelError(null);
-      rpc.call("models", { refresh }).then(
+      rpc.call("models", { kind, refresh }).then(
         (result) => setModels(result.models),
         (cause) => setModelError(messageOf(cause)),
       );
     },
-    [rpc],
+    [rpc, kind],
   );
 
   useEffect(() => {
@@ -81,32 +104,34 @@ function OpenRouterSettings() {
 
   const selectModel = (model: ModelOption) =>
     run("select", async () => {
-      await rpc.call("setModel", { model: model.id });
+      await rpc.call("setModel", { kind, model: model.id });
       setTestResult(null);
-      toast.success(`Using ${model.name}`);
+      toast.success(`Using ${model.name} for ${service.label.toLowerCase()}`);
     });
 
-  const active = status !== null && status.inference === status.inferenceValue;
-  const selected = models?.find((model) => model.id === status?.model);
+  const selectedId = kind === "voice" ? status?.transcriptionModel : status?.model;
+  const current = kind === "voice" ? status?.transcription : status?.inference;
+  const active = status !== null && current === status.serviceValue;
+  const selected = models?.find((model) => model.id === selectedId);
 
   return (
-    <div className="flex flex-col gap-4 text-sm">
+    <div role="region" aria-label={service.label} className="flex flex-col gap-4 text-sm">
       <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
         <StatusRow ok={status?.hasApiKey === true} label="API key">
           {status === null ? "Loading…" : status.hasApiKey ? "Saved" : "Add your key in the field above"}
         </StatusRow>
         <StatusRow ok={status !== null} label="Model">
-          <span className="font-mono">{status?.model ?? "…"}</span>
+          <span className="font-mono">{selectedId ?? "…"}</span>
           {selected ? <span className="text-muted-foreground"> · {selected.name}</span> : null}
         </StatusRow>
-        <StatusRow ok={active} label="Titles & commit messages">
-          {status === null ? (
+        <StatusRow ok={active} label={service.label}>
+          {current === undefined ? (
             "…"
           ) : active ? (
             "Served by this plugin"
           ) : (
             <>
-              Currently <span className="font-mono">{status.inference}</span>
+              Currently <span className="font-mono">{current}</span>
             </>
           )}
         </StatusRow>
@@ -121,13 +146,13 @@ function OpenRouterSettings() {
               disabled={pending !== null || status?.hasApiKey !== true}
               onClick={() =>
                 run("use", async () => {
-                  const result = await rpc.call("useForInference");
-                  toast.success(`BB_INFERENCE is now ${result.inference}`);
+                  const result = await rpc.call("useFor", { kind });
+                  toast.success(`Now using ${result.value} for ${service.label.toLowerCase()}`);
                 })
               }
             >
               <Icon name="Zap" className="size-4" />
-              Use for titles & commit messages
+              {service.useLabel}
             </Button>
           ) : null}
           <Button
@@ -136,9 +161,10 @@ function OpenRouterSettings() {
             onClick={() =>
               run("test", async () => {
                 setTestResult(null);
-                const result = await rpc.call("test");
-                const slow = result.durationMs > HELPER_TIMEOUT_MS ? ", slower than BB's 5s limit for titles" : "";
-                setTestResult(`“${result.title}” from ${result.model} in ${result.durationMs}ms${slow}`);
+                const result = await rpc.call("test", { kind });
+                const slow = result.durationMs > service.limitMs ? `, ${service.slowNote}` : "";
+                const text = result.text === "" ? "No text" : `“${result.text}”`;
+                setTestResult(`${text} from ${result.model} in ${result.durationMs}ms${slow}`);
               })
             }
           >
@@ -187,11 +213,11 @@ function OpenRouterSettings() {
           <>
             <ul
               role="listbox"
-              aria-label="OpenRouter models"
+              aria-label={`OpenRouter ${kind === "voice" ? "speech-to-text " : ""}models`}
               className="max-h-96 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-card"
             >
               {filtered.slice(0, MAX_VISIBLE_MODELS).map((model) => {
-                const isSelected = model.id === status?.model;
+                const isSelected = model.id === selectedId;
                 return (
                   <li key={model.id} role="option" aria-selected={isSelected}>
                     <button
@@ -209,10 +235,12 @@ function OpenRouterSettings() {
                         <div className="truncate font-medium">{model.name}</div>
                         <div className="truncate font-mono text-xs text-muted-foreground">{model.id}</div>
                       </div>
-                      <div className="hidden shrink-0 text-right text-xs text-muted-foreground sm:block">
-                        <div>{formatPrice(model)}</div>
-                        <div>{formatContext(model.contextLength)}</div>
-                      </div>
+                      {service.showPricing ? (
+                        <div className="hidden shrink-0 text-right text-xs text-muted-foreground sm:block">
+                          <div>{formatPrice(model)}</div>
+                          <div>{formatContext(model.contextLength)}</div>
+                        </div>
+                      ) : null}
                       {isSelected ? <Icon name="Check" className="size-4 shrink-0" /> : null}
                     </button>
                   </li>
@@ -249,11 +277,25 @@ function StatusRow({ ok, label, children }: { ok: boolean; label: string; childr
   );
 }
 
+function InferenceSettings() {
+  return <ServiceSettings kind="inference" />;
+}
+
+function VoiceSettings() {
+  return <ServiceSettings kind="voice" />;
+}
+
 export default definePluginApp((app) => {
   app.slots.settingsSection({
     id: "openrouter",
-    title: "Model & status",
+    title: "Titles & commit messages",
     description: "Pick the OpenRouter model BB uses for thread titles and commit messages.",
-    component: OpenRouterSettings,
+    component: InferenceSettings,
+  });
+  app.slots.settingsSection({
+    id: "openrouter-voice",
+    title: "Voice transcription",
+    description: "Pick the OpenRouter speech-to-text model BB uses for voice input.",
+    component: VoiceSettings,
   });
 });

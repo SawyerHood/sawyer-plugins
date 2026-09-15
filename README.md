@@ -8,7 +8,7 @@ Sawyer Hood's [BB](https://getbb.app) plugins, in one repository. Every plugin l
 | Compact Nav | [`plugins/compact-nav`](plugins/compact-nav) | Borderless sidebar icon buttons with native ordering and visibility controls. |
 | CoW copy | [`plugins/btrfs-cow`](plugins/btrfs-cow) | An environment provider that uses copy-on-write reflink copies instead of git worktrees (Btrfs/XFS). |
 | Miku Companion | [`plugins/miku`](plugins/miku) | An event-aware Hatsune Miku companion and theme. |
-| OpenRouter Inference | [`plugins/openrouter-inference`](plugins/openrouter-inference) | Thread titles and commit messages from any OpenRouter model, with your own API key. |
+| OpenRouter Inference | [`plugins/openrouter-inference`](plugins/openrouter-inference) | Thread titles, commit messages, and voice transcription from OpenRouter models, with your own API key. |
 | Pokémon | [`plugins/pokemon`](plugins/pokemon) | Catch a random Pokémon every time you archive a thread, and fill out your Pokédex. |
 | Quick Chat | [`plugins/quick-chat`](plugins/quick-chat) | A floating chat window for quick, projectless questions. |
 | Quick Compose | [`plugins/quick-compose`](plugins/quick-compose) | A floating new-thread composer you can open from anywhere. |
