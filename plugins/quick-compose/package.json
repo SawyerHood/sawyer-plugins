@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Quick Compose",
-    "description": "Start a new thread from a floating composer without leaving the page you're on. Open it with Mod+Shift+L or the command palette.",
+    "description": "Start a new thread from a floating composer without leaving the page you're on. Open it with Mod+Shift+L, hand off the current thread with Mod+Shift+H, or use the command palette.",
     "branding": {
       "icon": "./assets/icon.svg"
     },
