@@ -11,6 +11,7 @@ Sawyer Hood's [BB](https://getbb.app) plugins, in one repository. Every plugin l
 | OpenRouter Inference | [`plugins/openrouter-inference`](plugins/openrouter-inference) | Thread titles and commit messages from any OpenRouter model, with your own API key. |
 | Pokémon | [`plugins/pokemon`](plugins/pokemon) | Catch a random Pokémon every time you archive a thread, and fill out your Pokédex. |
 | Quick Chat | [`plugins/quick-chat`](plugins/quick-chat) | A floating chat window for quick, projectless questions. |
+| Quick Compose | [`plugins/quick-compose`](plugins/quick-compose) | A floating new-thread composer you can open from anywhere. |
 | SlopCop | [`plugins/slopcop`](plugins/slopcop) | Automated GitHub issue and PR rules that dispatch BB agents. |
 | T3 Sidebar | [`plugins/t3sidebar`](plugins/t3sidebar) | An inbox-style sidebar for BB threads. |
 
