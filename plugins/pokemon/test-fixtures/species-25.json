@@ -1,0 +1,91 @@
+{
+  "id": 25,
+  "name": "pikachu",
+  "names": [
+    {
+      "name": "Pikachu",
+      "language": {
+        "name": "en",
+        "url": "https://pokeapi.co/api/v2/language/9/"
+      }
+    },
+    {
+      "name": "ピカチュウ",
+      "language": {
+        "name": "ja",
+        "url": "https://pokeapi.co/api/v2/language/11/"
+      }
+    }
+  ],
+  "genera": [
+    {
+      "genus": "Mouse Pokémon",
+      "language": {
+        "name": "en",
+        "url": "https://pokeapi.co/api/v2/language/9/"
+      }
+    }
+  ],
+  "flavor_text_entries": [
+    {
+      "flavor_text": "When several of\nthese POKéMON\ngather, their\felectricity could\nbuild and cause\nlightning storms.",
+      "language": {
+        "name": "en",
+        "url": "https://pokeapi.co/api/v2/language/9/"
+      },
+      "version": {
+        "name": "red",
+        "url": "https://pokeapi.co/api/v2/version/1/"
+      }
+    },
+    {
+      "flavor_text": "Il lui arrive de remettre d’aplomb\nun Pikachu allié en lui envoyant\nune décharge électrique.",
+      "language": {
+        "name": "fr",
+        "url": "https://pokeapi.co/api/v2/language/5/"
+      },
+      "version": {
+        "name": "black",
+        "url": "https://pokeapi.co/api/v2/version/17/"
+      }
+    },
+    {
+      "flavor_text": "Possesses cheek sacs in which it stores electricity. This clever\nforest-dweller roasts tough berries with an electric shock before\nconsuming them.",
+      "language": {
+        "name": "en",
+        "url": "https://pokeapi.co/api/v2/language/9/"
+      },
+      "version": {
+        "name": "legends-arceus",
+        "url": "https://pokeapi.co/api/v2/version/39/"
+      }
+    }
+  ],
+  "generation": {
+    "name": "generation-i",
+    "url": "https://pokeapi.co/api/v2/generation/1/"
+  },
+  "habitat": {
+    "name": "forest",
+    "url": "https://pokeapi.co/api/v2/pokemon-habitat/2/"
+  },
+  "capture_rate": 190,
+  "is_legendary": false,
+  "is_mythical": false,
+  "varieties": [
+    {
+      "is_default": true,
+      "pokemon": {
+        "name": "pikachu",
+        "url": "https://pokeapi.co/api/v2/pokemon/25/"
+      }
+    },
+    {
+      "is_default": false,
+      "pokemon": {
+        "name": "pikachu-rock-star",
+        "url": "https://pokeapi.co/api/v2/pokemon/10080/"
+      }
+    }
+  ]
+}
