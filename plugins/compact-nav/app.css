@@ -57,7 +57,7 @@
   flex: 0 0 var(--compact-nav-target-size);
 }
 .compact-icon-navigation [data-sidebar-navigation-item] > button,
-.compact-icon-navigation [data-testid="sidebar-navigation-more-row"] > button {
+.compact-icon-navigation [data-testid="sidebar-navigation-more-row"] button {
   width: var(--compact-nav-target-size);
   height: var(--compact-nav-target-size);
   min-height: var(--compact-nav-target-size);
@@ -69,7 +69,7 @@
 }
 /* Retain host labels for screen readers while showing only the icon. */
 .compact-icon-navigation [data-sidebar-navigation-item] > button > :is(span,div):not([data-plugin-icon-asset]),
-.compact-icon-navigation [data-testid="sidebar-navigation-more-row"] > button > span {
+.compact-icon-navigation [data-testid="sidebar-navigation-more-row"] button > span {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -81,7 +81,7 @@
   border: 0;
 }
 .compact-icon-navigation [data-sidebar-navigation-item] > button > svg,
-.compact-icon-navigation [data-testid="sidebar-navigation-more-row"] > button > svg,
+.compact-icon-navigation [data-testid="sidebar-navigation-more-row"] button > svg,
 .compact-icon-navigation [data-sidebar-navigation-item] > button > [data-plugin-icon-asset] {
   width: var(--compact-nav-icon-size);
   height: var(--compact-nav-icon-size);

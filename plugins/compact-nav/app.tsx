@@ -70,7 +70,7 @@ export default definePluginApp(app => {
         for (const [button, title] of owned) {
           if (!button.isConnected) { if (button.title === title) button.removeAttribute("title"); owned.delete(button); }
         }
-        document.querySelectorAll<HTMLElement>(".compact-icon-navigation [data-sidebar-navigation-item] > button, .compact-icon-navigation [data-testid=sidebar-navigation-more-row] > button").forEach(button => {
+        document.querySelectorAll<HTMLElement>(".compact-icon-navigation [data-sidebar-navigation-item] > button, .compact-icon-navigation [data-testid=sidebar-navigation-more-row] button").forEach(button => {
           if (button.hasAttribute("title")) return;
           const title = button.getAttribute("aria-label") || button.textContent?.trim();
           if (title) { button.title = title; owned.set(button, title); }
