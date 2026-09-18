@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-pokemon",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Catch a random Pokémon every time you archive a BB thread, and fill out your Pokédex.",
   "author": "Sawyer Hood",
   "type": "module",
