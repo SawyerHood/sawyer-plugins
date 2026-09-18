@@ -1,28 +1,28 @@
 ---
-name: tune-auto-dispatch
-description: "Fill in and tune the Auto Dispatch plugin's model rotation, model instructions, and allowed effort levels from the user's own history of model and effort choices. Use when the user asks to set up, auto-fill, or tune Auto mode's model preferences."
+name: tune-magic-compose
+description: "Fill in and tune the Magic Compose plugin's model rotation, model instructions, and allowed effort levels from the user's own history of model and effort choices. Use when the user asks to set up, auto-fill, or tune Magic Compose's model preferences."
 ---
 
-# Tune Auto Dispatch's model preferences
+# Tune Magic Compose's model preferences
 
-Auto Dispatch asks Jev, a fast classifier model, which model and reasoning effort
+Magic Compose asks Jev, a fast classifier model, which model and reasoning effort
 each new prompt should get. Jev chooses among the models in the user's
 **rotation**, guided by a note on each model and by the **model instructions**.
 This skill writes those from how the user has actually been choosing, then checks
 the result against their history.
 
-Read `skills/auto-dispatch/SKILL.md` for the routing commands. Everything you
+Read `skills/magic-compose/SKILL.md` for the routing commands. Everything you
 write here lands in the user's BB settings, never in a repository.
 
 ## 1. Look at what the user picks
 
 ```sh
-bb auto-dispatch history --days 14          # counts per model and effort
-bb auto-dispatch history --days 14 --json   # plus every thread's prompt
+bb magic-compose history --days 14          # counts per model and effort
+bb magic-compose history --days 14 --json   # plus every thread's prompt
 ```
 
 Only threads the user started from a composer are counted; review bots,
-automations, and Auto's own dispatches are left out. Add
+automations, and Magic Compose's own dispatches are left out. Add
 `--include-origin <plugin-id>` for another plugin whose threads the user starts
 by hand. Go back further (`--days 30`) if there are fewer than about 100 threads.
 
@@ -77,15 +77,15 @@ plain headings, since Jev reads them for both questions.
 Save what is there now before replacing it, so the user can go back:
 
 ```sh
-bb auto-dispatch rotation get --json > "$BB_THREAD_STORAGE/rotation.before.json"
-bb auto-dispatch preferences get --json > "$BB_THREAD_STORAGE/preferences.before.json"
+bb magic-compose rotation get --json > "$BB_THREAD_STORAGE/rotation.before.json"
+bb magic-compose preferences get --json > "$BB_THREAD_STORAGE/preferences.before.json"
 ```
 
 Then apply:
 
 ```sh
-bb auto-dispatch rotation set "$(cat rotation.json)"
-bb auto-dispatch preferences set modelInstructions "$(cat model-instructions.txt)"
+bb magic-compose rotation set "$(cat rotation.json)"
+bb magic-compose preferences set modelInstructions "$(cat model-instructions.txt)"
 ```
 
 `rotation.json` is a list of
@@ -101,7 +101,7 @@ modes, and they start off for that reason. To change the list:
 
 ```sh
 echo '{"scope":{"reasoningLevels":["low","medium","high","xhigh"]}}' > levels.json
-bb plugin rpc call auto-dispatch scope_set --input-file levels.json
+bb plugin rpc call magic-compose scope_set --input-file levels.json
 ```
 
 ## 4. Backtest
@@ -111,7 +111,7 @@ get a yes first. Use `--exclude` to keep out anything that should not leave the
 machine, such as unreleased product or model names.
 
 ```sh
-bb auto-dispatch backtest --days 14 \
+bb magic-compose backtest --days 14 \
   --map '<regex>=<rotation model id>' \
   --exclude '<regex>' --json
 ```
@@ -139,11 +139,11 @@ far more often than exactly.
 Tell the user, plainly:
 
 - what the rotation and the instructions now say, and that both are ordinary
-  settings under Settings → Auto Dispatch that they can edit;
+  settings under Settings → Magic Compose that they can edit;
 - the agreement numbers next to the baselines, including any that did not beat
   the baseline, and why the history limits them;
 - which judgment calls were yours rather than the history's;
 - where the previous settings were saved.
 
-Spot-check a handful of fresh prompts with `bb auto-dispatch route "<prompt>"`
+Spot-check a handful of fresh prompts with `bb magic-compose route "<prompt>"`
 before you finish. It starts nothing.

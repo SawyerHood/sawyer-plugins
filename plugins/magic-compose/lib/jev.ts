@@ -134,7 +134,7 @@ function buildRequest(args: AskChoicesArgs): { headers: Record<string, string>; 
   );
   if (args.provider === "openrouter") {
     return {
-      headers: { ...base, "X-Title": "BB Auto Dispatch" },
+      headers: { ...base, "X-Title": "BB Magic Compose" },
       body: { model: args.model, state: args.state, questions },
     };
   }
@@ -175,7 +175,7 @@ function errorForStatus(provider: JevProvider, status: number, body: string): Je
   if (status === 401 || status === 403) {
     return new JevError(
       "auth",
-      `${name} rejected the API key (HTTP ${status}). Check the key in Auto Dispatch settings.`,
+      `${name} rejected the API key (HTTP ${status}). Check the key in Magic Compose settings.`,
     );
   }
   if (status === 402) {
@@ -249,7 +249,7 @@ async function requestOnce(
   try {
     parsed = responseSchema.parse(JSON.parse(body));
   } catch {
-    throw new JevError("bad_response", "Jev returned a response Auto Dispatch could not read.");
+    throw new JevError("bad_response", "Jev returned a response Magic Compose could not read.");
   }
   const latencyMs = Date.now() - startedAt;
   const inputTokens = parsed.usage?.inputTokens ?? parsed.usage?.input_tokens ?? null;

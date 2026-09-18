@@ -1,4 +1,4 @@
-// Auto, while it is on: the draft is routed again as it changes and the
+// Magic Compose, while it is on: the draft is routed again as it changes and the
 // composer's pickers follow it. This is the scheduling alone, free of React and
 // the DOM so it can be tested. It decides when to ask Jev and says, through
 // `pending`, when the draft on screen has not been decided yet, which is what
@@ -146,7 +146,7 @@ export function createLiveFill<Selection>(deps: LiveFillDeps<Selection>): LiveFi
       work.catch(() => undefined);
       const limit = new Promise<never>((_, reject) => {
         timeout = deps.setTimer(
-          () => reject(new Error("Auto took too long to decide.")),
+          () => reject(new Error("Magic Compose took too long to decide.")),
           ROUND_TIMEOUT_MS,
         );
       });
@@ -156,7 +156,7 @@ export function createLiveFill<Selection>(deps: LiveFillDeps<Selection>): LiveFi
     } finally {
       if (timeout !== null) deps.clearTimer(timeout);
     }
-    // Auto went off, or came back on, while this round was out.
+    // Magic Compose went off, or came back on, while this round was out.
     if (!alive()) return;
     // Disown whatever lost the race to the timeout.
     roundId += 1;
@@ -183,7 +183,7 @@ export function createLiveFill<Selection>(deps: LiveFillDeps<Selection>): LiveFi
     setEnabled(next) {
       if (next === enabled) return;
       enabled = next;
-      // Turning Auto on decides the draft afresh, whatever was applied before.
+      // Turning Magic Compose on decides the draft afresh, whatever was applied before.
       forget();
     },
     reset: forget,

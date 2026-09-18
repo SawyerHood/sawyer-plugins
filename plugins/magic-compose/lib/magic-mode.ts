@@ -1,7 +1,9 @@
-// Whether the Auto toggle is on. Per browser, and shared by every open
+// Whether the Magic Compose toggle is on. Per browser, and shared by every open
 // compose screen in that browser.
 
-const STORAGE_KEY = "bb-plugin-auto-dispatch:enabled";
+const STORAGE_KEY = "bb-plugin-magic-compose:enabled";
+/** The plugin was Auto Dispatch until it was renamed. A toggle left on then is still on. */
+const FORMER_STORAGE_KEY = "bb-plugin-auto-dispatch:enabled";
 
 type Listener = () => void;
 
@@ -17,7 +19,12 @@ function storage(): Storage | null {
 
 function read(): boolean {
   try {
-    return storage()?.getItem(STORAGE_KEY) === "1";
+    const store = storage();
+    if (store?.getItem(FORMER_STORAGE_KEY) === "1") {
+      store.setItem(STORAGE_KEY, "1");
+      store.removeItem(FORMER_STORAGE_KEY);
+    }
+    return store?.getItem(STORAGE_KEY) === "1";
   } catch {
     return false;
   }
@@ -33,7 +40,7 @@ function onStorage(event: StorageEvent): void {
   for (const listener of listeners) listener();
 }
 
-export const autoMode = {
+export const magicMode = {
   get: (): boolean => enabled,
   set(next: boolean): void {
     if (next === enabled) return;

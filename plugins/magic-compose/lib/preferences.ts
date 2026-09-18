@@ -2,7 +2,7 @@
 // flat card above the plugin's own sections, with no way to group them or to
 // leave one out, so only the keys and the choice between them are declared.
 // The rest lives here, in the plugin's own storage, where the settings page can
-// put each next to what it governs. `bb auto-dispatch preferences` reads and
+// put each next to what it governs. `bb magic-compose preferences` reads and
 // writes them from a shell. Shared by the server and the app.
 import { z } from "zod";
 
@@ -18,7 +18,7 @@ export const INSTRUCTIONS_MAX = 4_000;
 const instructionsSchema = z.string().max(INSTRUCTIONS_MAX);
 const jevModelSchema = z.string().trim().min(1).max(200);
 
-const autoSetsSchema = z
+const maySetSchema = z
   .object({
     project: z.boolean(),
     placement: z.boolean(),
@@ -35,12 +35,12 @@ const fields = {
   projectInstructions: instructionsSchema,
   machineInstructions: instructionsSchema,
   environmentInstructions: instructionsSchema,
-  /** For threads `bb auto-dispatch spawn` starts. In the composer the picker is the user's. */
+  /** For threads `bb magic-compose spawn` starts. In the composer the picker is the user's. */
   permissionMode: z.enum(PERMISSION_MODES),
   jevModel: jevModelSchema,
   openRouterJevModel: jevModelSchema,
-  /** Which of the composer's pickers Auto may set. Effort is chosen per model, so it needs `model`. */
-  autoSets: autoSetsSchema,
+  /** Which of the composer's pickers Magic Compose may set. Effort is chosen per model, so it needs `model`. */
+  maySet: maySetSchema,
   /** Hold the composer's send until the pickers match the draft. */
   holdSend: z.boolean(),
   /** Ask Jev as the draft is typed, or only once typing pauses. */
@@ -49,7 +49,7 @@ const fields = {
 
 export const preferencesSchema = z.object(fields).strict();
 export type Preferences = z.infer<typeof preferencesSchema>;
-export type AutoSets = Preferences["autoSets"];
+export type MaySet = Preferences["maySet"];
 export type Pace = Preferences["pace"];
 
 /** Some of the preferences, and only those: what a save sends. */
@@ -64,7 +64,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   permissionMode: "auto",
   jevModel: DEFAULT_JEV_MODELS.vercel,
   openRouterJevModel: DEFAULT_JEV_MODELS.openrouter,
-  autoSets: { project: true, placement: true, model: true, effort: true },
+  maySet: { project: true, placement: true, model: true, effort: true },
   holdSend: true,
   pace: "typing",
 };
@@ -76,12 +76,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
 export function readStoredPreferences(stored: unknown): Preferences {
   if (typeof stored !== "object" || stored === null) return DEFAULT_PREFERENCES;
   const record = stored as Record<string, unknown>;
-  const autoSets =
-    typeof record.autoSets === "object" && record.autoSets !== null ? record.autoSets : {};
+  const maySet =
+    typeof record.maySet === "object" && record.maySet !== null ? record.maySet : {};
   const parsed = preferencesSchema.safeParse({
     ...DEFAULT_PREFERENCES,
     ...record,
-    autoSets: { ...DEFAULT_PREFERENCES.autoSets, ...autoSets },
+    maySet: { ...DEFAULT_PREFERENCES.maySet, ...maySet },
   });
   return parsed.success ? parsed.data : DEFAULT_PREFERENCES;
 }

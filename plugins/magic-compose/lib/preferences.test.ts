@@ -36,10 +36,10 @@ describe("readStoredPreferences", () => {
 
   it("keeps what is stored and fills in a preference added since", () => {
     const { pace: _pace, ...older } = { ...DEFAULT_PREFERENCES, modelInstructions: "Use Fable." };
-    expect(readStoredPreferences({ ...older, autoSets: { project: false } })).toEqual({
+    expect(readStoredPreferences({ ...older, maySet: { project: false } })).toEqual({
       ...DEFAULT_PREFERENCES,
       modelInstructions: "Use Fable.",
-      autoSets: { ...DEFAULT_PREFERENCES.autoSets, project: false },
+      maySet: { ...DEFAULT_PREFERENCES.maySet, project: false },
     });
   });
 });

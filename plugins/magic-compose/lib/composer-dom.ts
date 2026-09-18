@@ -1,8 +1,8 @@
-// The plugin SDK has no way to hold a composer's send, so while Auto is still
+// The plugin SDK has no way to hold a composer's send, so while Magic Compose is still
 // deciding where a draft should run, it is held here against the composer's
 // DOM. Every selector BB's markup is trusted for lives in this file. A BB
 // release that renames them stops the hold, so a draft could be sent a moment
-// before Auto has caught up with it; nothing worse.
+// before Magic Compose has caught up with it; nothing worse.
 
 const COMPOSER_ROOT = "[data-app-composer]";
 const EDITOR = "[data-promptbox-editor-content]";
@@ -10,7 +10,7 @@ const TYPEAHEAD_MENU = "[data-promptbox-typeahead-menu]";
 const SUBMIT_BUTTON = 'button[type="submit"][data-promptbox-submit-action]';
 
 /** Set to "pending" on the composer root while send is held; app.css dims the button under it. */
-export const AUTO_ATTRIBUTE = "data-auto-dispatch";
+export const HOLD_ATTRIBUTE = "data-magic-compose";
 
 /** The composer containing `element`, the plugin's own button for one. */
 export function findComposer(element: Element): HTMLElement | null {

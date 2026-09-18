@@ -156,7 +156,7 @@ export interface RouteArgs {
    */
   targetsFor(project: ProjectCandidate, model: ModelCandidate): Targets;
   reasoningFor(model: ModelCandidate): ReasoningCandidate[];
-  /** The effort levels the user lets Auto pick. Nothing outside it is ever used. */
+  /** The effort levels the user lets Magic Compose pick. Nothing outside it is ever used. */
   reasoningLevels: readonly ReasoningLevel[];
 }
 
@@ -446,7 +446,7 @@ export async function route(args: RouteArgs): Promise<RouteDecision> {
   if (args.task.trim() === "") throw new RouteError("There is no prompt to route.");
   if (args.projects.length === 0) throw new RouteError("There are no projects to choose from.");
   if (args.models.length === 0) {
-    throw new RouteError("Add at least one model to the rotation in Auto Dispatch settings.");
+    throw new RouteError("Add at least one model to the rotation in Magic Compose settings.");
   }
 
   const general = args.instructions.general.trim();

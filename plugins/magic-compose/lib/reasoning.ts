@@ -13,7 +13,7 @@ export const REASONING_LEVELS = [
 export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 
 /**
- * What Auto may pick until the user says otherwise. `ultra` and `ultracode`
+ * What Magic Compose may pick until the user says otherwise. `ultra` and `ultracode`
  * are special run modes that cost far more than a reasoning level, so they
  * are opt-in.
  */

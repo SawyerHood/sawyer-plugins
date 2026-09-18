@@ -1,4 +1,4 @@
-// Auto Dispatch: route a new-thread prompt to a project, machine, model, and
+// Magic Compose: route a new-thread prompt to a project, machine, model, and
 // reasoning level with Jev (TypeSafe's classifier) on the Vercel AI Gateway,
 // then start the thread there. app.tsx owns the composer toggle; this file
 // gathers the candidates, asks Jev, and spawns.
@@ -74,17 +74,6 @@ const FALLBACK_ENVIRONMENT = "project-checkout";
 const JEV_PROVIDER_CHOICES = ["auto", "vercel", "openrouter"] as const;
 
 
-/** The preferences that were declared settings before they moved here. */
-const LEGACY_SETTING_KEYS = [
-  "generalInstructions",
-  "modelInstructions",
-  "projectInstructions",
-  "machineInstructions",
-  "environmentInstructions",
-  "permissionMode",
-  "jevModel",
-  "openRouterJevModel",
-] as const satisfies readonly (keyof Preferences)[];
 type PermissionMode = (typeof PERMISSION_MODES)[number];
 
 const rotationEntrySchema = z
@@ -97,7 +86,7 @@ const rotationEntrySchema = z
   .strict();
 const rotationSchema = z.array(rotationEntrySchema).max(MAX_ROTATION_ENTRIES);
 
-// Which projects, environments, and effort levels Auto may choose between.
+// Which projects, environments, and effort levels Magic Compose may choose between.
 const scopeSchema = z
   .object({
     /** True offers every project, including ones added later and "No project". */
@@ -106,7 +95,7 @@ const scopeSchema = z
     projectIds: z.array(z.string().min(1).max(200)).max(1_000),
     /** Environment provider ids, in order of preference. */
     environmentIds: z.array(z.string().min(1).max(64)).max(32),
-    /** Effort levels Auto may pick. */
+    /** Effort levels Magic Compose may pick. */
     reasoningLevels: z.array(z.enum(REASONING_LEVELS)),
   })
   .strict();
@@ -247,7 +236,7 @@ export const rpcContract = defineRpcContract({
     input: z
       .object({
         text: promptSchema,
-        /** Route within this project only, for a composer whose project Auto may not set. */
+        /** Route within this project only, for a composer whose project Magic Compose may not set. */
         projectId: z.string().min(1).nullable().default(null),
       })
       .strict(),
@@ -345,38 +334,6 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
-  // Until they moved to the preferences above, the instructions and a few
-  // others were declared settings. BB can read a setting only while it is
-  // declared, so an install from before the move declares them once more, for
-  // this one load, to carry their values over. A new install never does.
-  const stored = await bb.storage.kv.get(PREFERENCES_KEY);
-  const predatesPreferences =
-    stored === undefined && (await bb.storage.kv.get(ROTATION_KEY)) !== undefined;
-  const legacyDescriptors = Object.fromEntries(
-    LEGACY_SETTING_KEYS.map((key) => [
-      key,
-      { type: "string", label: `${key} (moved to the sections below)` } as const,
-    ]),
-  );
-  if (predatesPreferences) {
-    const legacy = bb.settings.define(legacyDescriptors);
-    const carryOver = async (values: Record<string, unknown>) => {
-      const carried = Object.fromEntries(
-        Object.entries(values).filter(([, value]) => typeof value === "string" && value !== ""),
-      );
-      const parsed = preferencesPatchSchema.safeParse(carried);
-      if (!parsed.success) {
-        bb.log.warn(`could not carry the old settings over: ${parsed.error.message}`);
-        return;
-      }
-      await bb.storage.kv.set(PREFERENCES_KEY, { ...(await readPreferences()), ...parsed.data });
-    };
-    await carryOver(await legacy.get());
-    // They stay on the page until the plugin next loads; keep an edit made there.
-    legacy.onChange((next) => void carryOver(next));
-    bb.log.info("carried the old settings over to preferences");
-  }
-
   const host = bb.hosts.experimental_client({ contract: hostContract });
   // The warm connections to Jev belong to this load of the plugin.
   bb.onDispose(() => jevTransport.close());
@@ -387,8 +344,8 @@ export default async function plugin(bb: BbPluginApi) {
 
   async function writePreferences(patch: Partial<Preferences>): Promise<Preferences> {
     const next = preferencesSchema.parse({ ...(await readPreferences()), ...patch });
-    // Effort is chosen per model, so Auto cannot set it for a model it did not pick.
-    if (!next.autoSets.model) next.autoSets.effort = false;
+    // Effort is chosen per model, so Magic Compose cannot set it for a model it did not pick.
+    if (!next.maySet.model) next.maySet.effort = false;
     await bb.storage.kv.set(PREFERENCES_KEY, next);
     return next;
   }
@@ -407,7 +364,7 @@ export default async function plugin(bb: BbPluginApi) {
   async function readScope(): Promise<Scope> {
     const parsed = storedScopeSchema.safeParse(await bb.storage.kv.get(SCOPE_KEY));
     if (!parsed.success) return DEFAULT_SCOPE;
-    // Auto always needs somewhere to run and some effort to run at.
+    // Magic Compose always needs somewhere to run and some effort to run at.
     return {
       ...parsed.data,
       environmentIds:
@@ -578,7 +535,7 @@ export default async function plugin(bb: BbPluginApi) {
     permissionMode: PermissionMode;
   }
 
-  /** Providers Auto can fill in by itself: no new machine, no inputs only a person can give. */
+  /** Providers Magic Compose can fill in by itself: no new machine, no inputs only a person can give. */
   function isAutomatic(provider: EnvironmentProvider): boolean {
     return (
       provider.machineProviderId === null && (provider.inputs === null || provider.acceptsEmptyInputs)
@@ -590,8 +547,8 @@ export default async function plugin(bb: BbPluginApi) {
 
   /**
    * Decide where `text` should run. With `projectId`, within that project
-   * only, whether or not it is one Auto may choose: that is for a composer
-   * whose project Auto has been told to leave alone.
+   * only, whether or not it is one Magic Compose may choose: that is for a composer
+   * whose project Magic Compose has been told to leave alone.
    */
   async function decide(text: string, projectId: string | null = null): Promise<RoutedThread> {
     try {
@@ -611,15 +568,15 @@ export default async function plugin(bb: BbPluginApi) {
     if (routes.length === 0) {
       throw new RouteError(
         config.jevProvider === "auto"
-          ? "Add a Vercel AI Gateway or OpenRouter API key in Auto Dispatch settings first."
+          ? "Add a Vercel AI Gateway or OpenRouter API key in Magic Compose settings first."
           : config.jevProvider === "openrouter"
-            ? "Add an OpenRouter API key in Auto Dispatch settings, or set the Jev provider to auto."
-            : "Add a Vercel AI Gateway API key in Auto Dispatch settings, or set the Jev provider to auto.",
+            ? "Add an OpenRouter API key in Magic Compose settings, or set the Jev provider to auto."
+            : "Add a Vercel AI Gateway API key in Magic Compose settings, or set the Jev provider to auto.",
       );
     }
     const rotation = await profiler.time("kv.rotation", () => readRotation());
     if (rotation.length === 0) {
-      throw new RouteError("Add at least one model to the rotation in Auto Dispatch settings.");
+      throw new RouteError("Add at least one model to the rotation in Magic Compose settings.");
     }
 
     const scope = await profiler.time("kv.scope", () => readScope());
@@ -646,8 +603,8 @@ export default async function plugin(bb: BbPluginApi) {
         projectId !== null
           ? "The composer's project is not on a connected machine."
           : projects.length === 0
-            ? "Pick at least one project for Auto in Auto Dispatch settings."
-            : "None of the projects Auto may use is on a connected machine.",
+            ? "Pick at least one project for Magic Compose in Magic Compose settings."
+            : "None of the projects Magic Compose may use is on a connected machine.",
       );
     }
     // Everything code must know before Jev is asked anything: what each
@@ -859,7 +816,7 @@ export default async function plugin(bb: BbPluginApi) {
     return new Error(messageOf(error));
   }
 
-  /** Route `text` and start the thread there. What `bb auto-dispatch spawn` runs. */
+  /** Route `text` and start the thread there. What `bb magic-compose spawn` runs. */
   async function dispatch(text: string): Promise<{ threadId: string; decision: DecisionSummary }> {
     try {
       const routed = await decide(text);
@@ -1102,7 +1059,7 @@ export default async function plugin(bb: BbPluginApi) {
   async function backtest(rows: readonly HistoryRow[]): Promise<BacktestResult[]> {
     const config = await readConfig();
     const routes = await jevRoutes();
-    if (routes.length === 0) throw new RouteError("Add a Jev API key in Auto Dispatch settings first.");
+    if (routes.length === 0) throw new RouteError("Add a Jev API key in Magic Compose settings first.");
     const [scope, { models, catalogs }] = await Promise.all([
       readScope(),
       readRotation().then(loadModels),
@@ -1179,57 +1136,57 @@ export default async function plugin(bb: BbPluginApi) {
 
   const usage = [
     "Usage:",
-    "  bb auto-dispatch route <prompt> [--json] [--profile]   Show where Jev would send a prompt; starts nothing",
-    "  bb auto-dispatch spawn <prompt> [--json]   Route a prompt and start the thread",
-    "  bb auto-dispatch machines [--json]         Show what Jev is told about each connected machine",
-    "  bb auto-dispatch rotation get [--json]     Show the model rotation",
-    "  bb auto-dispatch rotation set <json>       Replace it: [{providerId, model, note, reasoningLevel}, ...]",
-    "  bb auto-dispatch preferences get [--json]  Show the instructions and the other preferences",
-    "  bb auto-dispatch preferences set <key> <value>   Set one, for example modelInstructions",
-    "  bb auto-dispatch history [--days 14] [--include-origin <plugin-id>]... [--json]",
+    "  bb magic-compose route <prompt> [--json] [--profile]   Show where Jev would send a prompt; starts nothing",
+    "  bb magic-compose spawn <prompt> [--json]   Route a prompt and start the thread",
+    "  bb magic-compose machines [--json]         Show what Jev is told about each connected machine",
+    "  bb magic-compose rotation get [--json]     Show the model rotation",
+    "  bb magic-compose rotation set <json>       Replace it: [{providerId, model, note, reasoningLevel}, ...]",
+    "  bb magic-compose preferences get [--json]  Show the instructions and the other preferences",
+    "  bb magic-compose preferences set <key> <value>   Set one, for example modelInstructions",
+    "  bb magic-compose history [--days 14] [--include-origin <plugin-id>]... [--json]",
     "                                             The model and effort you chose for each thread you started",
-    "  bb auto-dispatch backtest [--days 14] [--map <regex>=<model>]... [--exclude <regex>] [--limit 250] [--json]",
+    "  bb magic-compose backtest [--days 14] [--map <regex>=<model>]... [--exclude <regex>] [--limit 250] [--json]",
     "                                             Route your past prompts through Jev and score agreement with what you chose",
   ].join("\n");
   bb.cli.register({
-    name: "auto-dispatch",
+    name: "magic-compose",
     summary: "Route prompts to a project, machine, model, and reasoning level with Jev",
     commands: [
       {
         name: "route",
         summary: "Show where Jev would send a prompt, without starting a thread",
-        usage: "bb auto-dispatch route <prompt> [--json]",
+        usage: "bb magic-compose route <prompt> [--json]",
       },
       {
         name: "spawn",
         summary: "Route a prompt with Jev and start the thread there",
-        usage: "bb auto-dispatch spawn <prompt> [--json]",
+        usage: "bb magic-compose spawn <prompt> [--json]",
       },
       {
         name: "machines",
         summary: "Show what Jev is told about each connected machine",
-        usage: "bb auto-dispatch machines [--json]",
+        usage: "bb magic-compose machines [--json]",
       },
       {
         name: "rotation",
         summary: "Show or replace the model rotation",
-        usage: "bb auto-dispatch rotation get [--json] | rotation set <json>",
+        usage: "bb magic-compose rotation get [--json] | rotation set <json>",
       },
       {
         name: "preferences",
         summary: "Show or set the instructions and the other preferences",
-        usage: "bb auto-dispatch preferences get [--json] | preferences set <key> <value>",
+        usage: "bb magic-compose preferences get [--json] | preferences set <key> <value>",
       },
       {
         name: "history",
         summary: "List the model and effort the user chose for each thread they started",
-        usage: "bb auto-dispatch history [--days 14] [--json]",
+        usage: "bb magic-compose history [--days 14] [--json]",
       },
       {
         name: "backtest",
         summary: "Route past prompts through Jev and score agreement with the user's own choices",
         usage:
-          "bb auto-dispatch backtest [--days 14] [--map <regex>=<model>]... [--exclude <regex>] [--limit 250] [--json]",
+          "bb magic-compose backtest [--days 14] [--map <regex>=<model>]... [--exclude <regex>] [--limit 250] [--json]",
       },
     ],
     async run(argv) {
@@ -1286,7 +1243,7 @@ export default async function plugin(bb: BbPluginApi) {
             };
           }
           const text = payload.join(" ");
-          // Text is taken as it is; a switch, a choice, or `autoSets` is given as JSON.
+          // Text is taken as it is; a switch, a choice, or `maySet` is given as JSON.
           const current = DEFAULT_PREFERENCES[key as keyof Preferences];
           let value: unknown = text;
           if (typeof current !== "string") {

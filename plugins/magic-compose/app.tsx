@@ -1,4 +1,4 @@
-// Auto Dispatch frontend: the Auto toggle in the New thread composer. The
+// Magic Compose frontend: the Magic Compose toggle in the New thread composer. The
 // settings page is in settings.tsx.
 import {
   type CSSProperties,
@@ -15,7 +15,7 @@ import { WandSparklesIcon } from "@hugeicons/core-free-icons";
 import { definePluginApp, useComposer, useComposerView, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server";
 import { registerSettings } from "./settings";
-import { autoMode } from "@/lib/auto-mode";
+import { magicMode } from "@/lib/magic-mode";
 import { findComposer } from "@/lib/composer-dom";
 import { selectionFor } from "@/lib/fill";
 import type { LiveFillSnapshot } from "@/lib/live-fill";
@@ -33,8 +33,8 @@ import "./app.css";
 /** The server keeps its connection to Jev hot for a few minutes after each warm. */
 const WARM_AT_MOST_EVERY_MS = 20_000;
 
-function useAutoMode(): boolean {
-  return useSyncExternalStore(autoMode.subscribe, autoMode.get, () => false);
+function useMagicMode(): boolean {
+  return useSyncExternalStore(magicMode.subscribe, magicMode.get, () => false);
 }
 
 type WandState = "off" | "on" | "pending" | "error";
@@ -80,13 +80,13 @@ function wandPart(
 }
 
 /**
- * The Auto toggle's icon, which is how it shows its state: a filled button
+ * The Magic Compose toggle's icon, which is how it shows its state: a filled button
  * there would compete with send, the one filled control in that row. On, the
  * sparkles are lit with a rainbow that drifts slowly across them. `moment`
  * changes each time the wand should move, which restarts its animations:
  * `flick` turns the stick, `cast` pops the sparkles and sends motes off the tip.
  */
-function AutoWand({
+function MagicWand({
   state,
   moment,
   flick,
@@ -97,7 +97,7 @@ function AutoWand({
   flick: boolean;
   cast: boolean;
 }) {
-  const gradientId = `auto-dispatch-rainbow-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+  const gradientId = `magic-compose-rainbow-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const still = usePrefersReducedMotion();
   const lit = state === "on" || state === "pending";
   const rainbow = `url(#${gradientId})`;
@@ -108,7 +108,7 @@ function AutoWand({
       fill="none"
       className={cn(
         COARSE_POINTER_ICON_SIZE_CLASS,
-        "auto-dispatch-wand",
+        "magic-compose-wand",
         state === "error" && "text-destructive",
       )}
       data-state={state}
@@ -167,7 +167,7 @@ function AutoWand({
 
 /**
  * The preferences as last read, kept outside the button. BB rebuilds the button
- * when Auto changes the project, and the new one must carry straight on, not
+ * when Magic Compose changes the project, and the new one must carry straight on, not
  * wait to read them again.
  */
 let lastKnownPreferences: Preferences | null = null;
@@ -178,19 +178,19 @@ const getNoCasts = () => 0;
 const subscribeToNothing = () => () => {};
 
 /**
- * The Auto toggle, in the composer beside the send button. While it is on, Jev
+ * The Magic Compose toggle, in the composer beside the send button. While it is on, Jev
  * is asked again as the draft changes and the composer's pickers follow. Send
  * waits until the pickers match the draft, so what runs is what was shown.
  */
-function AutoToggle() {
-  const enabled = useAutoMode();
+function MagicToggle() {
+  const enabled = useMagicMode();
   const composer = useComposer();
   const view = useComposerView();
   const rpc = useRpc<typeof rpcContract>();
   const anchor = useRef<HTMLSpanElement>(null);
   const [session, setSession] = useState<Session | null>(null);
 
-  // BB rebuilds this button when the composer's project changes, which Auto
+  // BB rebuilds this button when the composer's project changes, which Magic Compose
   // itself causes. The session belongs to the composer, so it carries on.
   useLayoutEffect(() => {
     const root = anchor.current === null ? null : findComposer(anchor.current);
@@ -199,8 +199,8 @@ function AutoToggle() {
     return () => releaseSession(root);
   }, []);
 
-  // What the settings page says Auto should do here. Read again when the
-  // window comes back, which is when it may have been changed. Auto waits for
+  // What the settings page says Magic Compose should do here. Read again when the
+  // window comes back, which is when it may have been changed. Magic Compose waits for
   // the first read, so that it never sets a picker it was told to leave alone.
   const [known, setKnown] = useState(lastKnownPreferences);
   useEffect(() => {
@@ -217,23 +217,23 @@ function AutoToggle() {
     window.addEventListener("focus", read);
     return () => window.removeEventListener("focus", read);
   }, [rpc]);
-  const { autoSets, holdSend, pace } = known ?? DEFAULT_PREFERENCES;
-  const sets = `${autoSets.project}${autoSets.placement}${autoSets.model}${autoSets.effort}`;
-  const setsAnything = autoSets.project || autoSets.placement || autoSets.model;
+  const { maySet, holdSend, pace } = known ?? DEFAULT_PREFERENCES;
+  const sets = `${maySet.project}${maySet.placement}${maySet.model}${maySet.effort}`;
+  const setsAnything = maySet.project || maySet.placement || maySet.model;
 
   const scope = view.scope;
   const projectId = scope.kind === "new-thread" ? scope.projectId : null;
   useLayoutEffect(() => {
     session?.attach({
       route: async (text) => {
-        // A project Auto may not set is the one to route within.
-        const pinned = autoSets.project ? null : projectId;
+        // A project Magic Compose may not set is the one to route within.
+        const pinned = maySet.project ? null : projectId;
         const { decision } = await rpc.call("preview", { text, projectId: pinned });
-        return selectionFor(decision, autoSets);
+        return selectionFor(decision, maySet);
       },
       setSelection: (selection) => composer.experimental_setSelection(selection),
     });
-    // `sets` stands for `autoSets`, which is a new object on every read.
+    // `sets` stands for `maySet`, which is a new object on every read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, rpc, composer, projectId, sets]);
 
@@ -242,7 +242,7 @@ function AutoToggle() {
   useEffect(() => session?.live.setPace(pace), [session, pace]);
   useEffect(() => session?.live.setText(text), [session, text]);
   useEffect(() => {
-    if (known !== null) session?.setAutoSets(sets);
+    if (known !== null) session?.setMaySet(sets);
   }, [session, known, sets]);
   useEffect(
     () => session?.live.setEnabled(enabled && known !== null && setsAnything),
@@ -270,9 +270,9 @@ function AutoToggle() {
     session?.live.getSnapshot ?? getNoSession,
   );
 
-  // Auto moving the pickers makes the wand cast, though not for moves made
+  // Magic Compose moving the pickers makes the wand cast, though not for moves made
   // before this button was (re)built. A click flicks it, and casts if that
-  // switched Auto on.
+  // switched Magic Compose on.
   const casts = useSyncExternalStore(
     session?.subscribeCasts ?? subscribeToNothing,
     session?.getCasts ?? getNoCasts,
@@ -301,17 +301,17 @@ function AutoToggle() {
                 "aria-pressed:bg-transparent aria-pressed:hover:bg-state-hover",
                 !enabled && "text-muted-foreground",
               )}
-              aria-label="Auto"
+              aria-label="Magic Compose"
               aria-pressed={enabled}
               // On the way to switching it on.
               onPointerEnter={warm}
               onFocus={warm}
               onClick={() => {
                 setClicks((current) => ({ count: current.count + 1, atMoves: moves }));
-                autoMode.set(!enabled);
+                magicMode.set(!enabled);
               }}
             >
-              <AutoWand
+              <MagicWand
                 state={state}
                 moment={moves + clicks.count}
                 flick={clickedLast}
@@ -321,10 +321,10 @@ function AutoToggle() {
           </TooltipTrigger>
           <TooltipContent>
             {snapshot.error !== null
-              ? `Auto: ${snapshot.error}`
+              ? `Magic Compose: ${snapshot.error}`
               : enabled
-                ? "Auto is on: Jev picks where this runs as you type"
-                : "Auto: let Jev pick where this runs as you type"}
+                ? "Magic Compose is on: Jev picks where this runs as you type"
+                : "Magic Compose: let Jev pick where this runs as you type"}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -336,7 +336,7 @@ export default definePluginApp((app) => {
   app.composer.customize({
     id: "auto",
     scopes: ["new-thread"],
-    actions: [{ id: "toggle", component: AutoToggle }],
+    actions: [{ id: "toggle", component: MagicToggle }],
   });
   registerSettings(app);
 });

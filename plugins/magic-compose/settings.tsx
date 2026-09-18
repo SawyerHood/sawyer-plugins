@@ -1,4 +1,4 @@
-// The Auto Dispatch settings page: the sections under BB's own card, which
+// The Magic Compose settings page: the sections under BB's own card, which
 // holds the API keys. They are laid out by the question Jev answers, with each
 // question's instructions beside the list it chooses from.
 import { type ReactNode, useCallback, useEffect, useState } from "react";
@@ -69,7 +69,7 @@ function usePreferences() {
   return { preferences, error, save };
 }
 
-/** Which projects, environments, and effort levels Auto may use, saved as they change. */
+/** Which projects, environments, and effort levels Magic Compose may use, saved as they change. */
 function useScope() {
   const rpc = useRpc<typeof rpcContract>();
   const [state, setState] = useState<ScopeOptions | null>(null);
@@ -246,9 +246,9 @@ function ago(at: number): string {
 }
 
 function statusLine(status: Status): { tone: "ok" | "idle" | "bad"; text: string } {
-  if (!status.hasApiKey) return { tone: "bad", text: "Add an API key above to connect Auto to Jev." };
+  if (!status.hasApiKey) return { tone: "bad", text: "Add an API key above to connect Magic Compose to Jev." };
   if (status.rotationSize === 0) {
-    return { tone: "bad", text: "Add a model under Models and effort: Auto needs one to choose." };
+    return { tone: "bad", text: "Add a model under Models and effort: Magic Compose needs one to choose." };
   }
   const through = status.gateways.join(", then ");
   if (status.last === null) {
@@ -363,7 +363,7 @@ function TrySection() {
 // In the composer
 // ---------------------------------------------------------------------------
 
-const AUTO_SETS: { key: keyof Preferences["autoSets"]; label: string }[] = [
+const MAY_SET: { key: keyof Preferences["maySet"]; label: string }[] = [
   { key: "project", label: "Project" },
   { key: "placement", label: "Machine & environment" },
   { key: "model", label: "Model" },
@@ -373,20 +373,20 @@ const AUTO_SETS: { key: keyof Preferences["autoSets"]; label: string }[] = [
 function ComposerSection() {
   const { preferences, error, save } = usePreferences();
   if (preferences === null) return <Loading error={error} />;
-  const { autoSets } = preferences;
+  const { maySet } = preferences;
   return (
     <div className="space-y-2">
       <Card>
-        <Row name="Auto may set" detail="Switch one off and that picker is always yours.">
+        <Row name="Magic Compose may set" detail="Switch one off and that picker is always yours.">
           <div className="flex flex-wrap gap-1.5">
-            {AUTO_SETS.map(({ key, label }) => (
+            {MAY_SET.map(({ key, label }) => (
               <Chip
                 key={key}
-                on={autoSets[key]}
+                on={maySet[key]}
                 // Jev chooses the effort for the model it chose.
-                disabled={key === "effort" && !autoSets.model}
+                disabled={key === "effort" && !maySet.model}
                 title={key === "effort" ? "Needs Model: Jev chooses the effort for the model it chose." : undefined}
-                onClick={() => save({ autoSets: { ...autoSets, [key]: !autoSets[key] } })}
+                onClick={() => save({ maySet: { ...maySet, [key]: !maySet[key] } })}
               >
                 {label}
               </Chip>
@@ -394,13 +394,13 @@ function ComposerSection() {
           </div>
         </Row>
         <Row
-          name="Hold send until Auto has decided"
+          name="Hold send until Magic Compose has decided"
           detail="Off, send is never held, and a draft may go before the pickers catch up with it."
         >
           <Switch
             checked={preferences.holdSend}
             onCheckedChange={(holdSend) => save({ holdSend })}
-            aria-label="Hold send until Auto has decided"
+            aria-label="Hold send until Magic Compose has decided"
           />
         </Row>
         <Row
@@ -544,7 +544,7 @@ function ProjectsSection() {
             </div>
           )}
           {chosen.length === 0 && (
-            <p className="text-sm text-destructive">Pick at least one project for Auto to use.</p>
+            <p className="text-sm text-destructive">Pick at least one project for Magic Compose to use.</p>
           )}
         </>
       )}
@@ -629,7 +629,7 @@ function EnvironmentsSection() {
           <Chip
             key={environment.id}
             on={picked.has(environment.id)}
-            // Auto always needs somewhere to run.
+            // Magic Compose always needs somewhere to run.
             disabled={picked.has(environment.id) && picked.size === 1}
             title={environment.detail === "" ? undefined : environment.detail}
             onClick={() =>
@@ -759,7 +759,7 @@ function ModelsSection() {
     <div className="space-y-2">
       {entries.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No models yet. Auto needs at least one to choose from.
+          No models yet. Magic Compose needs at least one to choose from.
         </p>
       ) : (
         <ul className="divide-y divide-border">
@@ -781,7 +781,7 @@ function ModelsSection() {
         The effort on a row is only a fallback, for a model that offers no choice of effort.
       </p>
 
-      <Label>Effort Auto may use</Label>
+      <Label>Effort Magic Compose may use</Label>
       {scope.state === null ? (
         <Loading error={scope.error} />
       ) : (
@@ -790,7 +790,7 @@ function ModelsSection() {
             <Chip
               key={level}
               on={levels.has(level)}
-              // Auto always needs some effort to run at.
+              // Magic Compose always needs some effort to run at.
               disabled={levels.has(level) && levels.size === 1}
               title={COSTLY.has(level) ? "A special run mode. Costs far more than a reasoning level." : undefined}
               onClick={() =>
@@ -895,7 +895,7 @@ function MoreSection() {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            For threads started with <code>bb auto-dispatch spawn</code>, lowered where a machine or
+            For threads started with <code>bb magic-compose spawn</code>, lowered where a machine or
             provider allows less. In the composer, the permission picker is yours.
           </p>
         </div>
@@ -926,13 +926,13 @@ export function registerSettings(app: PluginAppBuilder): void {
   app.slots.settingsSection({
     id: "try",
     title: "Try it",
-    description: "See where a prompt would go. Nothing is started. It is also the quickest check that Auto can reach Jev.",
+    description: "See where a prompt would go. Nothing is started. It is also the quickest check that Magic Compose can reach Jev.",
     component: TrySection,
   });
   app.slots.settingsSection({
     id: "composer",
     title: "In the composer",
-    description: "What Auto does while it is on: the wand beside the send button.",
+    description: "What Magic Compose does while it is on: the wand beside the send button.",
     component: ComposerSection,
   });
   app.slots.settingsSection({
@@ -944,7 +944,7 @@ export function registerSettings(app: PluginAppBuilder): void {
   app.slots.settingsSection({
     id: "projects",
     title: "Projects",
-    description: "Which projects Auto may choose between, and how to choose.",
+    description: "Which projects Magic Compose may choose between, and how to choose.",
     component: ProjectsSection,
   });
   app.slots.settingsSection({
@@ -957,14 +957,14 @@ export function registerSettings(app: PluginAppBuilder): void {
     id: "environments",
     title: "Environments",
     description:
-      "Where a thread works. With one on, Auto always uses it; with several, Jev picks per prompt. A project none of them can serve, such as one that is not a git repository, falls back to Project checkout.",
+      "Where a thread works. With one on, Magic Compose always uses it; with several, Jev picks per prompt. A project none of them can serve, such as one that is not a git repository, falls back to Project checkout.",
     component: EnvironmentsSection,
   });
   app.slots.settingsSection({
     id: "models",
     title: "Models and effort",
     description:
-      "The models Auto may pick, each with a note on when to use it, and how hard they may think. Jev picks the effort for each prompt from the levels the model supports and you allow.",
+      "The models Magic Compose may pick, each with a note on when to use it, and how hard they may think. Jev picks the effort for each prompt from the levels the model supports and you allow.",
     component: ModelsSection,
   });
   app.slots.settingsSection({ id: "more", component: MoreSection });

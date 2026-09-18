@@ -46,7 +46,7 @@ describe("selectionFor", () => {
     expect(() => selectionFor({ ...decision, reasoning: pick("galaxy") }, ALL)).toThrow(/unknown/);
   });
 
-  it("leaves out the pickers Auto may not set", () => {
+  it("leaves out the pickers Magic Compose may not set", () => {
     expect(selectionFor(decision, { ...ALL, project: false })).not.toHaveProperty("projectId");
     expect(selectionFor(decision, { ...ALL, placement: false })).not.toHaveProperty("environment");
     expect(selectionFor(decision, { ...ALL, effort: false })).toEqual(
@@ -81,7 +81,7 @@ describe("changedSelection", () => {
     });
   });
 
-  it("sets only the model when effort is not Auto's to set", () => {
+  it("sets only the model when effort is not Magic Compose's to set", () => {
     const sets = { ...ALL, effort: false };
     const before = selectionFor(decision, sets);
     const after = selectionFor(

@@ -1,5 +1,5 @@
 {
-  "name": "bb-plugin-auto-dispatch",
+  "name": "bb-plugin-magic-compose",
   "version": "0.1.0",
   "type": "module",
   "engines": {
@@ -7,8 +7,8 @@
     "bbPluginSdk": ">=0.4.103"
   },
   "bb": {
-    "name": "Auto Dispatch",
-    "description": "Switch on Auto in the new-thread composer and Jev picks the project, machine, model, reasoning level, and environment as you type, using your Vercel AI Gateway or OpenRouter key.",
+    "name": "Magic Compose",
+    "description": "Switch on Magic Compose in the new-thread composer and Jev picks the project, machine, model, reasoning level, and environment as you type, using your Vercel AI Gateway or OpenRouter key.",
     "branding": {
       "icon": "./assets/icon.svg"
     },
@@ -63,6 +63,6 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/SawyerHood/sawyer-plugins.git",
-    "directory": "plugins/auto-dispatch"
+    "directory": "plugins/magic-compose"
   }
 }

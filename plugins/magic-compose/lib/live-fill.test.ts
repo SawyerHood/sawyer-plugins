@@ -75,7 +75,7 @@ function harness() {
 }
 
 describe("createLiveFill", () => {
-  it("does nothing while Auto is off", async () => {
+  it("does nothing while Magic Compose is off", async () => {
     const h = harness();
     h.live.setText("fix the bug");
     await h.advance(5_000);
@@ -216,7 +216,7 @@ describe("createLiveFill", () => {
     expect(h.live.getSnapshot()).toEqual({
       enabled: true,
       pending: false,
-      error: "Auto took too long to decide.",
+      error: "Magic Compose took too long to decide.",
     });
     // The answer that finally comes is no longer wanted.
     h.routes[0]?.resolve("late");
@@ -224,7 +224,7 @@ describe("createLiveFill", () => {
     expect(h.applied).toEqual([]);
   });
 
-  it("drops a round in the air when Auto is switched off", async () => {
+  it("drops a round in the air when Magic Compose is switched off", async () => {
     const h = harness();
     h.live.setEnabled(true);
     h.live.setText("fix the bug");
@@ -236,7 +236,7 @@ describe("createLiveFill", () => {
     expect(h.live.getSnapshot()).toEqual({ enabled: false, pending: false, error: null });
   });
 
-  it("decides the draft afresh when Auto comes back on", async () => {
+  it("decides the draft afresh when Magic Compose comes back on", async () => {
     const h = harness();
     h.live.setEnabled(true);
     h.live.setText("fix the bug");

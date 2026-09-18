@@ -1,11 +1,11 @@
-// One Auto session per composer on screen. It outlives the plugin's button:
-// BB rebuilds that whenever the composer's project changes, which Auto itself
+// One Magic Compose session per composer on screen. It outlives the plugin's button:
+// BB rebuilds that whenever the composer's project changes, which Magic Compose itself
 // causes, and a decision on its way must not be lost or asked for twice. The
 // session owns the scheduling, the hold on the composer's send, and the word
 // to the user when a round fails.
 import type { ExperimentalComposerSelection } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
-import { AUTO_ATTRIBUTE, holdSubmit } from "./composer-dom";
+import { HOLD_ATTRIBUTE, holdSubmit } from "./composer-dom";
 import { changedSelection } from "./fill";
 import { createLiveFill, type LiveFill } from "./live-fill";
 
@@ -20,14 +20,14 @@ export interface SessionHandles {
 export interface Session {
   live: LiveFill;
   attach(handles: SessionHandles): void;
-  /** Whether send waits for Auto. Off, a draft may go before the pickers catch up. */
+  /** Whether send waits for Magic Compose. Off, a draft may go before the pickers catch up. */
   setHoldSend(hold: boolean): void;
   /**
-   * Which pickers Auto may set, as a key. When it changes, what Auto applied
+   * Which pickers Magic Compose may set, as a key. When it changes, what Magic Compose applied
    * before is no guide to what to apply next, so the draft is decided afresh.
    */
-  setAutoSets(key: string): void;
-  /** How many times Auto has moved this composer's pickers. The wand casts on each. */
+  setMaySet(key: string): void;
+  /** How many times Magic Compose has moved this composer's pickers. The wand casts on each. */
   getCasts(): number;
   subscribeCasts(listener: () => void): () => void;
 }
@@ -51,11 +51,11 @@ function createEntry(root: HTMLElement): Entry {
   let handles: SessionHandles | null = null;
   let lastToasted: string | null = null;
   let holdSend = true;
-  let autoSets: string | null = null;
+  let maySet: string | null = null;
   let casts = 0;
   const castListeners = new Set<() => void>();
   const current = (): SessionHandles => {
-    if (handles === null || entry.surfaces === 0) throw new DetachedError("Auto is not on screen.");
+    if (handles === null || entry.surfaces === 0) throw new DetachedError("Magic Compose is not on screen.");
     return handles;
   };
 
@@ -75,8 +75,8 @@ function createEntry(root: HTMLElement): Entry {
 
   const held = () => holdSend && live.getSnapshot().pending;
   const showHold = () => {
-    if (held()) root.setAttribute(AUTO_ATTRIBUTE, "pending");
-    else root.removeAttribute(AUTO_ATTRIBUTE);
+    if (held()) root.setAttribute(HOLD_ATTRIBUTE, "pending");
+    else root.removeAttribute(HOLD_ATTRIBUTE);
   };
   const releaseHold = holdSubmit(root, held);
   const unsubscribe = live.subscribe(() => {
@@ -90,7 +90,7 @@ function createEntry(root: HTMLElement): Entry {
     // Said once, not on every keystroke that fails the same way.
     if (error === lastToasted || entry.surfaces === 0) return;
     lastToasted = error;
-    toast.error(`Auto: ${error}`);
+    toast.error(`Magic Compose: ${error}`);
   });
 
   const entry: Entry = {
@@ -103,10 +103,10 @@ function createEntry(root: HTMLElement): Entry {
         holdSend = next;
         showHold();
       },
-      setAutoSets(key) {
+      setMaySet(key) {
         // Not on the first report, from a button BB has just (re)built.
-        if (autoSets !== null && autoSets !== key) live.reset();
-        autoSets = key;
+        if (maySet !== null && maySet !== key) live.reset();
+        maySet = key;
       },
       getCasts: () => casts,
       subscribeCasts(listener) {
@@ -123,7 +123,7 @@ function createEntry(root: HTMLElement): Entry {
       castListeners.clear();
       releaseHold();
       live.dispose();
-      root.removeAttribute(AUTO_ATTRIBUTE);
+      root.removeAttribute(HOLD_ATTRIBUTE);
       entries.delete(root);
     },
   };

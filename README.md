@@ -4,11 +4,11 @@ Sawyer Hood's [BB](https://getbb.app) plugins, in one repository. Every plugin l
 
 | Plugin | Directory | What it does |
 | --- | --- | --- |
-| Auto Dispatch | [`plugins/auto-dispatch`](plugins/auto-dispatch) | An Auto toggle on the new-thread composer: Jev picks the project, machine, model, reasoning level, and environment. |
 | Better Notes | [`plugins/better-notes`](plugins/better-notes) | An editable fork of BB’s built-in document and notes library. |
 | Cascade | [`plugins/cascade`](plugins/cascade) | A scrollable, tiled layout for active BB threads. |
 | Compact Nav | [`plugins/compact-nav`](plugins/compact-nav) | Borderless sidebar icon buttons with native ordering and visibility controls. |
 | CoW copy | [`plugins/btrfs-cow`](plugins/btrfs-cow) | An environment provider that uses copy-on-write reflink copies instead of git worktrees (Btrfs/XFS). |
+| Magic Compose | [`plugins/magic-compose`](plugins/magic-compose) | A wand beside the send button on the new-thread composer: switch it on and Jev picks the project, machine, model, reasoning level, and environment as you type. |
 | Miku Companion | [`plugins/miku`](plugins/miku) | An event-aware Hatsune Miku companion and theme. |
 | OpenRouter Inference | [`plugins/openrouter-inference`](plugins/openrouter-inference) | Thread titles, commit messages, and voice transcription from OpenRouter models, with your own API key. |
 | Pokémon | [`plugins/pokemon`](plugins/pokemon) | Catch a random Pokémon every time you archive a thread, and fill out your Pokédex. |

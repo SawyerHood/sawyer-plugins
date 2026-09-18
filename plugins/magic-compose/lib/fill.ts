@@ -4,16 +4,16 @@
 // pickers show what it settled on.
 import type { ExperimentalComposerSelection } from "@get-bb/plugin-sdk/app";
 import type { DecisionSummary } from "../server";
-import type { AutoSets } from "./preferences";
+import type { MaySet } from "./preferences";
 import { REASONING_LEVELS } from "./reasoning";
 
 /**
  * The composer selection that carries out `decision`, leaving out the pickers
- * Auto has been told not to set. Permission mode is always left to the user.
+ * Magic Compose has been told not to set. Permission mode is always left to the user.
  */
 export function selectionFor(
   decision: DecisionSummary,
-  sets: AutoSets,
+  sets: MaySet,
 ): ExperimentalComposerSelection {
   // A reasoning pick is labelled with its level.
   const reasoningLevel = REASONING_LEVELS.find((level) => level === decision.reasoning.label);
