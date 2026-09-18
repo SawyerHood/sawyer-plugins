@@ -30,6 +30,7 @@ import {
   type Preferences,
   preferencesPatchSchema,
   preferencesSchema,
+  readStoredPreferences,
 } from "./lib/preferences";
 import { DEFAULT_REASONING_LEVELS, REASONING_LEVELS } from "./lib/reasoning";
 import {
@@ -381,8 +382,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.onDispose(() => jevTransport.close());
 
   async function readPreferences(): Promise<Preferences> {
-    const parsed = preferencesSchema.safeParse(await bb.storage.kv.get(PREFERENCES_KEY));
-    return parsed.success ? parsed.data : DEFAULT_PREFERENCES;
+    return readStoredPreferences(await bb.storage.kv.get(PREFERENCES_KEY));
   }
 
   async function writePreferences(patch: Partial<Preferences>): Promise<Preferences> {

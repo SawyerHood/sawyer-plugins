@@ -18,36 +18,70 @@ export const INSTRUCTIONS_MAX = 4_000;
 const instructionsSchema = z.string().max(INSTRUCTIONS_MAX);
 const jevModelSchema = z.string().trim().min(1).max(200);
 
-export const preferencesSchema = z
+const autoSetsSchema = z
   .object({
-    generalInstructions: instructionsSchema.default(""),
-    modelInstructions: instructionsSchema.default(""),
-    projectInstructions: instructionsSchema.default(""),
-    machineInstructions: instructionsSchema.default(""),
-    environmentInstructions: instructionsSchema.default(""),
-    /** For threads `bb auto-dispatch spawn` starts. In the composer the picker is the user's. */
-    permissionMode: z.enum(PERMISSION_MODES).default("auto"),
-    jevModel: jevModelSchema.default(DEFAULT_JEV_MODELS.vercel),
-    openRouterJevModel: jevModelSchema.default(DEFAULT_JEV_MODELS.openrouter),
-    /** Which of the composer's pickers Auto may set. Effort is chosen per model, so it needs `model`. */
-    autoSets: z
-      .object({
-        project: z.boolean().default(true),
-        placement: z.boolean().default(true),
-        model: z.boolean().default(true),
-        effort: z.boolean().default(true),
-      })
-      .strict()
-      .default({ project: true, placement: true, model: true, effort: true }),
-    /** Hold the composer's send until the pickers match the draft. */
-    holdSend: z.boolean().default(true),
-    /** Ask Jev as the draft is typed, or only once typing pauses. */
-    pace: z.enum(["typing", "pause"]).default("typing"),
+    project: z.boolean(),
+    placement: z.boolean(),
+    model: z.boolean(),
+    effort: z.boolean(),
   })
   .strict();
+
+// No field here has a default. A default would be filled into a patch that does
+// not mention the field, and saving one preference would reset all the others.
+const fields = {
+  generalInstructions: instructionsSchema,
+  modelInstructions: instructionsSchema,
+  projectInstructions: instructionsSchema,
+  machineInstructions: instructionsSchema,
+  environmentInstructions: instructionsSchema,
+  /** For threads `bb auto-dispatch spawn` starts. In the composer the picker is the user's. */
+  permissionMode: z.enum(PERMISSION_MODES),
+  jevModel: jevModelSchema,
+  openRouterJevModel: jevModelSchema,
+  /** Which of the composer's pickers Auto may set. Effort is chosen per model, so it needs `model`. */
+  autoSets: autoSetsSchema,
+  /** Hold the composer's send until the pickers match the draft. */
+  holdSend: z.boolean(),
+  /** Ask Jev as the draft is typed, or only once typing pauses. */
+  pace: z.enum(["typing", "pause"]),
+};
+
+export const preferencesSchema = z.object(fields).strict();
 export type Preferences = z.infer<typeof preferencesSchema>;
 export type AutoSets = Preferences["autoSets"];
 export type Pace = Preferences["pace"];
 
-export const preferencesPatchSchema = preferencesSchema.partial().strict();
-export const DEFAULT_PREFERENCES: Preferences = preferencesSchema.parse({});
+/** Some of the preferences, and only those: what a save sends. */
+export const preferencesPatchSchema = z.object(fields).partial().strict();
+
+export const DEFAULT_PREFERENCES: Preferences = {
+  generalInstructions: "",
+  modelInstructions: "",
+  projectInstructions: "",
+  machineInstructions: "",
+  environmentInstructions: "",
+  permissionMode: "auto",
+  jevModel: DEFAULT_JEV_MODELS.vercel,
+  openRouterJevModel: DEFAULT_JEV_MODELS.openrouter,
+  autoSets: { project: true, placement: true, model: true, effort: true },
+  holdSend: true,
+  pace: "typing",
+};
+
+/**
+ * What is stored, read as preferences. A preference added since it was stored
+ * takes its default; anything unreadable gives the defaults.
+ */
+export function readStoredPreferences(stored: unknown): Preferences {
+  if (typeof stored !== "object" || stored === null) return DEFAULT_PREFERENCES;
+  const record = stored as Record<string, unknown>;
+  const autoSets =
+    typeof record.autoSets === "object" && record.autoSets !== null ? record.autoSets : {};
+  const parsed = preferencesSchema.safeParse({
+    ...DEFAULT_PREFERENCES,
+    ...record,
+    autoSets: { ...DEFAULT_PREFERENCES.autoSets, ...autoSets },
+  });
+  return parsed.success ? parsed.data : DEFAULT_PREFERENCES;
+}
