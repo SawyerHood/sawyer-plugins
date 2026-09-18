@@ -20,6 +20,13 @@ export interface SessionHandles {
 export interface Session {
   live: LiveFill;
   attach(handles: SessionHandles): void;
+  /** Whether send waits for Auto. Off, a draft may go before the pickers catch up. */
+  setHoldSend(hold: boolean): void;
+  /**
+   * Which pickers Auto may set, as a key. When it changes, what Auto applied
+   * before is no guide to what to apply next, so the draft is decided afresh.
+   */
+  setAutoSets(key: string): void;
   /** How many times Auto has moved this composer's pickers. The wand casts on each. */
   getCasts(): number;
   subscribeCasts(listener: () => void): () => void;
@@ -43,6 +50,8 @@ const entries = new WeakMap<HTMLElement, Entry>();
 function createEntry(root: HTMLElement): Entry {
   let handles: SessionHandles | null = null;
   let lastToasted: string | null = null;
+  let holdSend = true;
+  let autoSets: string | null = null;
   let casts = 0;
   const castListeners = new Set<() => void>();
   const current = (): SessionHandles => {
@@ -64,11 +73,15 @@ function createEntry(root: HTMLElement): Entry {
     clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
   });
 
-  const releaseHold = holdSubmit(root, () => live.getSnapshot().pending);
+  const held = () => holdSend && live.getSnapshot().pending;
+  const showHold = () => {
+    if (held()) root.setAttribute(AUTO_ATTRIBUTE, "pending");
+    else root.removeAttribute(AUTO_ATTRIBUTE);
+  };
+  const releaseHold = holdSubmit(root, held);
   const unsubscribe = live.subscribe(() => {
     const { pending, error } = live.getSnapshot();
-    if (pending) root.setAttribute(AUTO_ATTRIBUTE, "pending");
-    else root.removeAttribute(AUTO_ATTRIBUTE);
+    showHold();
     if (error === null) {
       // A round that worked makes the next failure news again.
       if (!pending) lastToasted = null;
@@ -85,6 +98,15 @@ function createEntry(root: HTMLElement): Entry {
       live,
       attach(next) {
         handles = next;
+      },
+      setHoldSend(next) {
+        holdSend = next;
+        showHold();
+      },
+      setAutoSets(key) {
+        // Not on the first report, from a button BB has just (re)built.
+        if (autoSets !== null && autoSets !== key) live.reset();
+        autoSets = key;
       },
       getCasts: () => casts,
       subscribeCasts(listener) {

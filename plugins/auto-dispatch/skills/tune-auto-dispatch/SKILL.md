@@ -78,14 +78,14 @@ Save what is there now before replacing it, so the user can go back:
 
 ```sh
 bb auto-dispatch rotation get --json > "$BB_THREAD_STORAGE/rotation.before.json"
-bb plugin config auto-dispatch --json > "$BB_THREAD_STORAGE/settings.before.json"
+bb auto-dispatch preferences get --json > "$BB_THREAD_STORAGE/preferences.before.json"
 ```
 
 Then apply:
 
 ```sh
 bb auto-dispatch rotation set "$(cat rotation.json)"
-bb plugin config auto-dispatch set modelInstructions "$(cat model-instructions.txt)"
+bb auto-dispatch preferences set modelInstructions "$(cat model-instructions.txt)"
 ```
 
 `rotation.json` is a list of

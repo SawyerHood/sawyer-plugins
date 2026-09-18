@@ -4,27 +4,43 @@
 // pickers show what it settled on.
 import type { ExperimentalComposerSelection } from "@get-bb/plugin-sdk/app";
 import type { DecisionSummary } from "../server";
+import type { AutoSets } from "./preferences";
 import { REASONING_LEVELS } from "./reasoning";
 
-/** The composer selection that carries out `decision`. Permission mode is left to the user. */
-export function selectionFor(decision: DecisionSummary): ExperimentalComposerSelection {
+/**
+ * The composer selection that carries out `decision`, leaving out the pickers
+ * Auto has been told not to set. Permission mode is always left to the user.
+ */
+export function selectionFor(
+  decision: DecisionSummary,
+  sets: AutoSets,
+): ExperimentalComposerSelection {
   // A reasoning pick is labelled with its level.
   const reasoningLevel = REASONING_LEVELS.find((level) => level === decision.reasoning.label);
   if (reasoningLevel === undefined) {
     throw new Error(`Jev picked an unknown reasoning level, “${decision.reasoning.label}”.`);
   }
   return {
-    projectId: decision.project.id,
-    environment: {
-      type: "provider",
-      environmentProviderId: decision.environment.id,
-      // Not applied: the composer keeps its own inputs, such as the branch to start from.
-      inputs: {},
-      machine: { type: "existing", hostId: decision.machine.id },
-    },
-    providerId: decision.model.providerId,
-    model: decision.model.model,
-    reasoningLevel,
+    ...(sets.project ? { projectId: decision.project.id } : {}),
+    ...(sets.placement
+      ? {
+          environment: {
+            type: "provider" as const,
+            environmentProviderId: decision.environment.id,
+            // Not applied: the composer keeps its own inputs, such as the branch to start from.
+            inputs: {},
+            machine: { type: "existing" as const, hostId: decision.machine.id },
+          },
+        }
+      : {}),
+    ...(sets.model
+      ? {
+          providerId: decision.model.providerId,
+          model: decision.model.model,
+          // Jev chose this effort for this model, so it goes only where the model does.
+          ...(sets.effort ? { reasoningLevel } : {}),
+        }
+      : {}),
   };
 }
 
@@ -53,5 +69,9 @@ export function changedSelection(
     previous.reasoningLevel === next.reasoningLevel;
   if (sameModel) return {};
   // Effort is chosen per model, so the three travel together.
-  return { providerId: next.providerId, model: next.model, reasoningLevel: next.reasoningLevel };
+  return {
+    ...(next.providerId === undefined ? {} : { providerId: next.providerId }),
+    ...(next.model === undefined ? {} : { model: next.model }),
+    ...(next.reasoningLevel === undefined ? {} : { reasoningLevel: next.reasoningLevel }),
+  };
 }

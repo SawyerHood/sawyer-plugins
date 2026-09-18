@@ -4,7 +4,7 @@
 // gathers the candidates, asks Jev, and spawns.
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { hostContract } from "./contract";
+import { hostContract, machineStatsSchema } from "./contract";
 import {
   askChoicesVia,
   JEV_PROVIDERS,
@@ -24,6 +24,13 @@ import {
   type HistoryRow,
 } from "./lib/history";
 import { formatSpans, Profiler } from "./lib/profile";
+import {
+  DEFAULT_PREFERENCES,
+  PERMISSION_MODES,
+  type Preferences,
+  preferencesPatchSchema,
+  preferencesSchema,
+} from "./lib/preferences";
 import { DEFAULT_REASONING_LEVELS, REASONING_LEVELS } from "./lib/reasoning";
 import {
   describeMachine,
@@ -42,6 +49,7 @@ import {
 
 const ROTATION_KEY = "rotation";
 const SCOPE_KEY = "scope";
+const PREFERENCES_KEY = "preferences";
 const MAX_ROTATION_ENTRIES = 24;
 const RECENT_TITLES_PER_PROJECT = 4;
 const STATS_TIMEOUT_MS = 2_500;
@@ -63,7 +71,19 @@ const DEFAULT_ENVIRONMENTS = ["git-worktree"];
 const FALLBACK_ENVIRONMENT = "project-checkout";
 /** `auto` uses whichever key is set, and both when both are: the second backs up the first. */
 const JEV_PROVIDER_CHOICES = ["auto", "vercel", "openrouter"] as const;
-const PERMISSION_MODES = ["accept-edits", "auto", "full"] as const;
+
+
+/** The preferences that were declared settings before they moved here. */
+const LEGACY_SETTING_KEYS = [
+  "generalInstructions",
+  "modelInstructions",
+  "projectInstructions",
+  "machineInstructions",
+  "environmentInstructions",
+  "permissionMode",
+  "jevModel",
+  "openRouterJevModel",
+] as const satisfies readonly (keyof Preferences)[];
 type PermissionMode = (typeof PERMISSION_MODES)[number];
 
 const rotationEntrySchema = z
@@ -139,6 +159,44 @@ export const rpcContract = defineRpcContract({
       .object({
         hasApiKey: z.boolean(),
         rotationSize: z.number(),
+        /** The gateways a question goes to, in the order they are tried. */
+        gateways: z.array(z.string()),
+        /** The last time Jev was asked, since the plugin loaded. */
+        last: z
+          .object({
+            at: z.number(),
+            latencyMs: z.number().nullable(),
+            error: z.string().nullable(),
+          })
+          .strict()
+          .nullable(),
+      })
+      .strict(),
+  },
+  preferences_get: {
+    input: z.null(),
+    output: z.object({ preferences: preferencesSchema }).strict(),
+  },
+  /** Merges into the stored preferences, so each settings section saves only its own fields. */
+  preferences_set: {
+    input: z.object({ preferences: preferencesPatchSchema }).strict(),
+    output: z.object({ preferences: preferencesSchema }).strict(),
+  },
+  /** What Jev is told about each connected machine. */
+  machines: {
+    input: z.null(),
+    output: z
+      .object({
+        machines: z.array(
+          z
+            .object({
+              id: z.string(),
+              name: z.string(),
+              description: z.string(),
+              stats: machineStatsSchema.nullable(),
+            })
+            .strict(),
+        ),
       })
       .strict(),
   },
@@ -185,7 +243,13 @@ export const rpcContract = defineRpcContract({
   },
   /** Ask Jev where a prompt would go without starting anything. */
   preview: {
-    input: z.object({ text: promptSchema }).strict(),
+    input: z
+      .object({
+        text: promptSchema,
+        /** Route within this project only, for a composer whose project Auto may not set. */
+        projectId: z.string().min(1).nullable().default(null),
+      })
+      .strict(),
     output: z.object({ decision: decisionSchema }).strict(),
   },
 });
@@ -278,78 +342,62 @@ export default async function plugin(bb: BbPluginApi) {
       options: [...JEV_PROVIDER_CHOICES],
       default: "auto",
     },
-    generalInstructions: {
-      type: "string",
-      label: "General instructions",
-      description:
-        "Context sent with every routing question: who you are, what your setup is, anything Jev should always know.",
-      experimental_multiline: true,
-      experimental_schema: z.string().max(4_000),
-      default: "",
-    },
-    modelInstructions: {
-      type: "string",
-      label: "Model instructions",
-      description:
-        "How to choose a model and reasoning level, for example “Use Fable for UI design and planning, Opus for most other tasks, Sonnet for simple tasks.” Pick the models themselves in the rotation below.",
-      experimental_multiline: true,
-      experimental_schema: z.string().max(4_000),
-      default: "",
-    },
-    projectInstructions: {
-      type: "string",
-      label: "Project instructions",
-      description:
-        "How to choose a project, for example “Anything about the iOS app goes to the mobile project.”",
-      experimental_multiline: true,
-      experimental_schema: z.string().max(4_000),
-      default: "",
-    },
-    machineInstructions: {
-      type: "string",
-      label: "Machine instructions",
-      description:
-        "How to choose a machine, for example “iOS and macOS work must run on the MacBook. Prefer the Linux server for everything else.”",
-      experimental_multiline: true,
-      experimental_schema: z.string().max(4_000),
-      default: "",
-    },
-    environmentInstructions: {
-      type: "string",
-      label: "Environment instructions",
-      description:
-        "How to choose an environment when you allow more than one below, for example “Use a worktree for anything that changes code, the project checkout for questions.”",
-      experimental_multiline: true,
-      experimental_schema: z.string().max(4_000),
-      default: "",
-    },
-    permissionMode: {
-      type: "select",
-      label: "Permission mode",
-      description:
-        "Permission mode for threads started with `bb auto-dispatch spawn`. Lowered automatically where a machine or provider allows less. In the composer, the permission picker is yours.",
-      options: [...PERMISSION_MODES],
-      default: "auto",
-    },
-    jevModel: {
-      type: "string",
-      label: "Jev model id on Vercel",
-      description: "The Vercel AI Gateway model id to route with.",
-      experimental_schema: z.string().trim().min(1).max(200),
-      default: JEV_PROVIDERS.vercel.defaultModel,
-    },
-    openRouterJevModel: {
-      type: "string",
-      label: "Jev model id on OpenRouter",
-      description: "The OpenRouter model id to route with.",
-      experimental_schema: z.string().trim().min(1).max(200),
-      default: JEV_PROVIDERS.openrouter.defaultModel,
-    },
   });
+
+  // Until they moved to the preferences above, the instructions and a few
+  // others were declared settings. BB can read a setting only while it is
+  // declared, so an install from before the move declares them once more, for
+  // this one load, to carry their values over. A new install never does.
+  const stored = await bb.storage.kv.get(PREFERENCES_KEY);
+  const predatesPreferences =
+    stored === undefined && (await bb.storage.kv.get(ROTATION_KEY)) !== undefined;
+  const legacyDescriptors = Object.fromEntries(
+    LEGACY_SETTING_KEYS.map((key) => [
+      key,
+      { type: "string", label: `${key} (moved to the sections below)` } as const,
+    ]),
+  );
+  if (predatesPreferences) {
+    const legacy = bb.settings.define(legacyDescriptors);
+    const carryOver = async (values: Record<string, unknown>) => {
+      const carried = Object.fromEntries(
+        Object.entries(values).filter(([, value]) => typeof value === "string" && value !== ""),
+      );
+      const parsed = preferencesPatchSchema.safeParse(carried);
+      if (!parsed.success) {
+        bb.log.warn(`could not carry the old settings over: ${parsed.error.message}`);
+        return;
+      }
+      await bb.storage.kv.set(PREFERENCES_KEY, { ...(await readPreferences()), ...parsed.data });
+    };
+    await carryOver(await legacy.get());
+    // They stay on the page until the plugin next loads; keep an edit made there.
+    legacy.onChange((next) => void carryOver(next));
+    bb.log.info("carried the old settings over to preferences");
+  }
 
   const host = bb.hosts.experimental_client({ contract: hostContract });
   // The warm connections to Jev belong to this load of the plugin.
   bb.onDispose(() => jevTransport.close());
+
+  async function readPreferences(): Promise<Preferences> {
+    const parsed = preferencesSchema.safeParse(await bb.storage.kv.get(PREFERENCES_KEY));
+    return parsed.success ? parsed.data : DEFAULT_PREFERENCES;
+  }
+
+  async function writePreferences(patch: Partial<Preferences>): Promise<Preferences> {
+    const next = preferencesSchema.parse({ ...(await readPreferences()), ...patch });
+    // Effort is chosen per model, so Auto cannot set it for a model it did not pick.
+    if (!next.autoSets.model) next.autoSets.effort = false;
+    await bb.storage.kv.set(PREFERENCES_KEY, next);
+    return next;
+  }
+
+  /** The declared settings and the preferences, as the one configuration they are. */
+  async function readConfig() {
+    const [connection, preferences] = await Promise.all([settings.get(), readPreferences()]);
+    return { ...connection, ...preferences };
+  }
 
   async function readRotation(): Promise<RotationEntry[]> {
     const parsed = rotationSchema.safeParse(await bb.storage.kv.get(ROTATION_KEY));
@@ -373,7 +421,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   /** The ways to reach Jev that are set up, in the order to try them. */
   async function jevRoutes(): Promise<JevRoute[]> {
-    const config = await settings.get();
+    const config = await readConfig();
     const secret = (value: unknown) =>
       typeof value === "string" && value.trim() !== "" ? value.trim() : null;
     const keys = {
@@ -537,9 +585,28 @@ export default async function plugin(bb: BbPluginApi) {
     );
   }
 
-  async function decide(text: string): Promise<RoutedThread> {
+  /** How the last question to Jev went, for the settings page. Not kept across loads. */
+  let lastAsked: { at: number; latencyMs: number | null; error: string | null } | null = null;
+
+  /**
+   * Decide where `text` should run. With `projectId`, within that project
+   * only, whether or not it is one Auto may choose: that is for a composer
+   * whose project Auto has been told to leave alone.
+   */
+  async function decide(text: string, projectId: string | null = null): Promise<RoutedThread> {
+    try {
+      const routed = await decideWithin(text, projectId);
+      lastAsked = { at: Date.now(), latencyMs: routed.profiler.elapsed(), error: null };
+      return routed;
+    } catch (error) {
+      lastAsked = { at: Date.now(), latencyMs: null, error: messageOf(error) };
+      throw error;
+    }
+  }
+
+  async function decideWithin(text: string, projectId: string | null): Promise<RoutedThread> {
     const profiler = new Profiler();
-    const config = await profiler.time("settings", () => settings.get());
+    const config = await profiler.time("settings", () => readConfig());
     const routes = await profiler.time("settings.keys", () => jevRoutes());
     if (routes.length === 0) {
       throw new RouteError(
@@ -557,7 +624,13 @@ export default async function plugin(bb: BbPluginApi) {
 
     const scope = await profiler.time("kv.scope", () => readScope());
     const [projects, { models, catalogs }, { hosts, connected, candidate }] = await Promise.all([
-      profiler.time("load.projects", () => loadProjects(scope)),
+      profiler.time("load.projects", async () =>
+        projectId === null
+          ? loadProjects(scope)
+          : (await loadProjects({ ...scope, allProjects: true })).filter(
+              (project) => project.id === projectId,
+            ),
+      ),
       profiler.time("load.modelCatalogs", () => loadModels(rotation)),
       profiler.time("load.machines", () => loadMachines()),
     ]);
@@ -570,9 +643,11 @@ export default async function plugin(bb: BbPluginApi) {
     );
     if (reachable.length === 0) {
       throw new RouteError(
-        projects.length === 0
-          ? "Pick at least one project for Auto in Auto Dispatch settings."
-          : "None of the projects Auto may use is on a connected machine.",
+        projectId !== null
+          ? "The composer's project is not on a connected machine."
+          : projects.length === 0
+            ? "Pick at least one project for Auto in Auto Dispatch settings."
+            : "None of the projects Auto may use is on a connected machine.",
       );
     }
     // Everything code must know before Jev is asked anything: what each
@@ -818,11 +893,33 @@ export default async function plugin(bb: BbPluginApi) {
     }
   }
 
+  /** What Jev is told about each connected machine. */
+  async function describeMachines() {
+    const { connected, candidate } = await loadMachines();
+    const machines = await Promise.all(
+      connected.map(async (entry) => candidate(entry, await machineStats(entry.id), null, [])),
+    );
+    return machines.map((machine) => ({
+      id: machine.id,
+      name: machine.name,
+      description: describeMachine(machine),
+      stats: machine.stats,
+    }));
+  }
+
   bb.rpc.register(rpcContract, {
-    status: async () => ({
-      hasApiKey: (await jevRoutes()).length > 0,
-      rotationSize: (await readRotation()).length,
-    }),
+    status: async () => {
+      const routes = await jevRoutes();
+      return {
+        hasApiKey: routes.length > 0,
+        rotationSize: (await readRotation()).length,
+        gateways: routes.map((entry) => JEV_PROVIDERS[entry.provider].name),
+        last: lastAsked,
+      };
+    },
+    preferences_get: async () => ({ preferences: await readPreferences() }),
+    preferences_set: async ({ preferences }) => ({ preferences: await writePreferences(preferences) }),
+    machines: async () => ({ machines: await describeMachines() }),
     warm: async () => {
       const routes = await jevRoutes();
       if (routes.length === 0) return { warmed: false };
@@ -898,9 +995,9 @@ export default async function plugin(bb: BbPluginApi) {
         },
       };
     },
-    preview: async ({ text }) => {
+    preview: async ({ text, projectId }) => {
       try {
-        return { decision: summarize(await decide(text)) };
+        return { decision: summarize(await decide(text, projectId)) };
       } catch (error) {
         throw userFacing(error);
       }
@@ -1003,7 +1100,7 @@ export default async function plugin(bb: BbPluginApi) {
    * asked: the world is reduced to one project on one machine.
    */
   async function backtest(rows: readonly HistoryRow[]): Promise<BacktestResult[]> {
-    const config = await settings.get();
+    const config = await readConfig();
     const routes = await jevRoutes();
     if (routes.length === 0) throw new RouteError("Add a Jev API key in Auto Dispatch settings first.");
     const [scope, { models, catalogs }] = await Promise.all([
@@ -1087,6 +1184,8 @@ export default async function plugin(bb: BbPluginApi) {
     "  bb auto-dispatch machines [--json]         Show what Jev is told about each connected machine",
     "  bb auto-dispatch rotation get [--json]     Show the model rotation",
     "  bb auto-dispatch rotation set <json>       Replace it: [{providerId, model, note, reasoningLevel}, ...]",
+    "  bb auto-dispatch preferences get [--json]  Show the instructions and the other preferences",
+    "  bb auto-dispatch preferences set <key> <value>   Set one, for example modelInstructions",
     "  bb auto-dispatch history [--days 14] [--include-origin <plugin-id>]... [--json]",
     "                                             The model and effort you chose for each thread you started",
     "  bb auto-dispatch backtest [--days 14] [--map <regex>=<model>]... [--exclude <regex>] [--limit 250] [--json]",
@@ -1115,6 +1214,11 @@ export default async function plugin(bb: BbPluginApi) {
         name: "rotation",
         summary: "Show or replace the model rotation",
         usage: "bb auto-dispatch rotation get [--json] | rotation set <json>",
+      },
+      {
+        name: "preferences",
+        summary: "Show or set the instructions and the other preferences",
+        usage: "bb auto-dispatch preferences get [--json] | preferences set <key> <value>",
       },
       {
         name: "history",
@@ -1170,6 +1274,48 @@ export default async function plugin(bb: BbPluginApi) {
               : entries
                   .map((entry) => `${entry.providerId} / ${entry.model} (fallback effort ${entry.reasoningLevel})\n  ${entry.note || "(no note)"}`)
                   .join("\n"),
+        };
+      }
+      if (command === "preferences") {
+        const [action, key, ...payload] = rest;
+        if (action === "set") {
+          if (key === undefined || !(key in DEFAULT_PREFERENCES)) {
+            return {
+              exitCode: 1,
+              stderr: `Unknown preference. Known: ${Object.keys(DEFAULT_PREFERENCES).join(", ")}`,
+            };
+          }
+          const text = payload.join(" ");
+          // Text is taken as it is; a switch, a choice, or `autoSets` is given as JSON.
+          const current = DEFAULT_PREFERENCES[key as keyof Preferences];
+          let value: unknown = text;
+          if (typeof current !== "string") {
+            try {
+              value = JSON.parse(text);
+            } catch {
+              return { exitCode: 1, stderr: `${key} takes JSON, for example ${JSON.stringify(current)}` };
+            }
+          }
+          const patch = preferencesPatchSchema.safeParse({ [key]: value });
+          if (!patch.success) {
+            return { exitCode: 1, stderr: `Could not set ${key}: ${patch.error.issues[0]?.message ?? "invalid value"}` };
+          }
+          await writePreferences(patch.data);
+          return { exitCode: 0, stdout: `Set ${key}.` };
+        }
+        if (action !== undefined && action !== "get") return { exitCode: 1, stderr: usage };
+        const preferences = await readPreferences();
+        return {
+          exitCode: 0,
+          stdout: json
+            ? JSON.stringify(preferences)
+            : Object.entries(preferences)
+                .map(([name, value]) =>
+                  typeof value === "string" && value.includes("\n")
+                    ? `${name}:\n${value.replace(/^/gm, "  ")}`
+                    : `${name}: ${typeof value === "string" ? value || "(empty)" : JSON.stringify(value)}`,
+                )
+                .join("\n"),
         };
       }
       if (command === "history") {
@@ -1241,16 +1387,7 @@ export default async function plugin(bb: BbPluginApi) {
         }
       }
       if (command === "machines") {
-        const { connected, candidate } = await loadMachines();
-        const machines = await Promise.all(
-          connected.map(async (entry) => candidate(entry, await machineStats(entry.id), null, [])),
-        );
-        const described = machines.map((machine) => ({
-          id: machine.id,
-          name: machine.name,
-          description: describeMachine(machine),
-          stats: machine.stats,
-        }));
+        const described = await describeMachines();
         return {
           exitCode: 0,
           stdout: json

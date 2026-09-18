@@ -8,6 +8,8 @@
 export const FIRST_DELAY_MS = 300;
 /** At most one request starts per this long, however fast the typing. */
 export const THROTTLE_MS = 600;
+/** With the pace set to "pause": how long typing must stop before Jev is asked. */
+export const PAUSE_MS = 700;
 /** A round slower than this fails, so send is never held for good. */
 export const ROUND_TIMEOUT_MS = 8_000;
 
@@ -31,10 +33,14 @@ export interface LiveFillDeps<Selection> {
 
 export interface LiveFill {
   setEnabled(enabled: boolean): void;
+  /** "typing" asks as the draft changes, throttled. "pause" waits for typing to stop. */
+  setPace(pace: "typing" | "pause"): void;
   /** The draft's current text. Surrounding whitespace is ignored. */
   setText(text: string): void;
   /** Put a failure behind and try the current draft again. */
   retry(): void;
+  /** Forget what was decided and applied, and decide the draft afresh. */
+  reset(): void;
   subscribe(listener: () => void): () => void;
   getSnapshot(): LiveFillSnapshot;
   dispose(): void;
@@ -49,6 +55,8 @@ function messageOf(error: unknown): string {
 export function createLiveFill<Selection>(deps: LiveFillDeps<Selection>): LiveFill {
   const listeners = new Set<() => void>();
   let enabled = false;
+  let pace: "typing" | "pause" = "typing";
+  let lastChangeAt = 0;
   let text = "";
   /** The text whose selection the composer holds now. */
   let settledText: string | null = null;
@@ -95,10 +103,18 @@ export function createLiveFill<Selection>(deps: LiveFillDeps<Selection>): LiveFi
       return;
     }
     // One round at a time; the one in the air schedules the next as it lands.
-    // A timer already set is kept: this is a throttle, so more typing does not
-    // push the next request back.
-    if (inFlight || timer !== null) return;
-    const dueAt = Math.max(dirtySince + FIRST_DELAY_MS, lastStartAt + THROTTLE_MS);
+    if (inFlight) return;
+    if (pace === "pause") {
+      // Every keystroke pushes the request back until typing stops.
+      cancelTimer();
+    } else if (timer !== null) {
+      // A throttle: more typing does not push the next request back.
+      return;
+    }
+    const dueAt =
+      pace === "pause"
+        ? lastChangeAt + PAUSE_MS
+        : Math.max(dirtySince + FIRST_DELAY_MS, lastStartAt + THROTTLE_MS);
     timer = deps.setTimer(
       () => {
         timer = null;
@@ -150,19 +166,31 @@ export function createLiveFill<Selection>(deps: LiveFillDeps<Selection>): LiveFi
     schedule();
   }
 
+  function forget(): void {
+    roundId += 1;
+    cancelTimer();
+    settledText = null;
+    applied = null;
+    error = null;
+    inFlight = false;
+    dirtySince = deps.now();
+    lastChangeAt = dirtySince;
+    publish();
+    schedule();
+  }
+
   return {
     setEnabled(next) {
       if (next === enabled) return;
       enabled = next;
-      roundId += 1;
-      cancelTimer();
       // Turning Auto on decides the draft afresh, whatever was applied before.
-      settledText = null;
-      applied = null;
-      error = null;
-      inFlight = false;
-      dirtySince = deps.now();
-      publish();
+      forget();
+    },
+    reset: forget,
+    setPace(next) {
+      if (next === pace) return;
+      pace = next;
+      cancelTimer();
       schedule();
     },
     setText(raw) {
@@ -170,6 +198,7 @@ export function createLiveFill<Selection>(deps: LiveFillDeps<Selection>): LiveFi
       if (next === text) return;
       const wasUndecided = undecided();
       text = next;
+      lastChangeAt = deps.now();
       // New text is a reason to try again after a failure.
       error = null;
       if (!wasUndecided && undecided()) dirtySince = deps.now();

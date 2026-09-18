@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createLiveFill, FIRST_DELAY_MS, ROUND_TIMEOUT_MS, THROTTLE_MS } from "./live-fill";
+import {
+  createLiveFill,
+  FIRST_DELAY_MS,
+  PAUSE_MS,
+  ROUND_TIMEOUT_MS,
+  THROTTLE_MS,
+} from "./live-fill";
 
 /** A clock the test moves by hand, and a Jev whose answers the test releases. */
 function harness() {
@@ -145,6 +151,24 @@ describe("createLiveFill", () => {
     ]);
   });
 
+  it("waits for typing to stop when the pace is pause, and still holds the draft", async () => {
+    const h = harness();
+    h.live.setPace("pause");
+    h.live.setEnabled(true);
+    // Three seconds of typing: nothing is sent while it goes on.
+    for (let i = 1; i <= 30; i++) {
+      h.live.setText("x".repeat(i));
+      await h.advance(100);
+      expect(h.routes).toHaveLength(0);
+      expect(h.live.getSnapshot().pending).toBe(true);
+    }
+    await h.advance(PAUSE_MS);
+    expect(h.routes.map((route) => route.text)).toEqual(["x".repeat(30)]);
+    h.routes[0]?.resolve("codex");
+    await h.flush();
+    expect(h.live.getSnapshot().pending).toBe(false);
+  });
+
   it("lets the draft go when a round fails, and tries again once it changes", async () => {
     const h = harness();
     h.live.setEnabled(true);
@@ -228,6 +252,23 @@ describe("createLiveFill", () => {
     h.routes[1]?.resolve("codex");
     await h.flush();
     // Nothing is assumed about what the composer holds after being off.
+    expect(h.applied.at(-1)).toEqual({ selection: "codex", previous: null });
+  });
+
+  it("decides afresh on reset, without going off in between", async () => {
+    const h = harness();
+    h.live.setEnabled(true);
+    h.live.setText("fix the bug");
+    await h.advance(FIRST_DELAY_MS);
+    h.routes[0]?.resolve("codex");
+    await h.flush();
+    expect(h.live.getSnapshot().pending).toBe(false);
+
+    h.live.reset();
+    expect(h.live.getSnapshot()).toEqual({ enabled: true, pending: true, error: null });
+    await h.advance(THROTTLE_MS);
+    h.routes[1]?.resolve("codex");
+    await h.flush();
     expect(h.applied.at(-1)).toEqual({ selection: "codex", previous: null });
   });
 

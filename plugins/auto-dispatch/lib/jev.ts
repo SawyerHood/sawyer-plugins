@@ -8,6 +8,7 @@
 //   probabilities put the pick second.
 // - OpenRouter serves Jev from its Decisions endpoint.
 import { z } from "zod";
+import { DEFAULT_JEV_MODELS } from "./preferences";
 import { jevTransport } from "./transport";
 
 export type JevProvider = "vercel" | "openrouter";
@@ -19,13 +20,13 @@ export const JEV_PROVIDERS: Record<
   vercel: {
     name: "Vercel AI Gateway",
     url: "https://ai-gateway.vercel.sh/v4/ai/evaluation-model",
-    defaultModel: "typesafe-ai/jev",
+    defaultModel: DEFAULT_JEV_MODELS.vercel,
     keysUrl: "https://vercel.com/dashboard → AI Gateway → API keys",
   },
   openrouter: {
     name: "OpenRouter",
     url: "https://openrouter.ai/api/alpha/decisions",
-    defaultModel: "typesafe/jev-1.13",
+    defaultModel: DEFAULT_JEV_MODELS.openrouter,
     keysUrl: "https://openrouter.ai/keys",
   },
 };

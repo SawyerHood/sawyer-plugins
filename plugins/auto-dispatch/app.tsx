@@ -1,6 +1,5 @@
-// Auto Dispatch frontend: the Auto toggle in the New thread composer, and the
-// plugin's settings sections: which projects and environments Auto may choose
-// between, the model rotation, and a routing test.
+// Auto Dispatch frontend: the Auto toggle in the New thread composer. The
+// settings page is in settings.tsx.
 import {
   type CSSProperties,
   createElement,
@@ -13,41 +12,26 @@ import {
   useSyncExternalStore,
 } from "react";
 import { WandSparklesIcon } from "@hugeicons/core-free-icons";
-import {
-  definePluginApp,
-  experimental_ProviderModelPicker as ProviderModelPicker,
-  useComposer,
-  useComposerView,
-  useRpc,
-} from "@get-bb/plugin-sdk/app";
-import type { DecisionSummary, rpcContract, ScopeOptions } from "./server";
-import type { RotationEntry } from "./lib/router";
+import { definePluginApp, useComposer, useComposerView, useRpc } from "@get-bb/plugin-sdk/app";
+import type { rpcContract } from "./server";
+import { registerSettings } from "./settings";
 import { autoMode } from "@/lib/auto-mode";
 import { findComposer } from "@/lib/composer-dom";
 import { selectionFor } from "@/lib/fill";
 import type { LiveFillSnapshot } from "@/lib/live-fill";
+import { DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 import { acquireSession, releaseSession, type Session } from "@/lib/session";
-import { REASONING_LEVELS, type ReasoningLevel } from "@/lib/reasoning";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   COARSE_POINTER_ICON_SIZE_CLASS,
   COARSE_POINTER_PROMPT_ICON_ACTION_BUTTON_CLASS,
 } from "@/components/ui/coarse-pointer-sizing";
-import { Icon } from "@/components/ui/icon";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import "./app.css";
 
 /** The server keeps its connection to Jev hot for a few minutes after each warm. */
 const WARM_AT_MOST_EVERY_MS = 20_000;
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function useAutoMode(): boolean {
   return useSyncExternalStore(autoMode.subscribe, autoMode.get, () => false);
@@ -181,6 +165,13 @@ function AutoWand({
   );
 }
 
+/**
+ * The preferences as last read, kept outside the button. BB rebuilds the button
+ * when Auto changes the project, and the new one must carry straight on, not
+ * wait to read them again.
+ */
+let lastKnownPreferences: Preferences | null = null;
+
 const NO_SESSION: LiveFillSnapshot = { enabled: false, pending: false, error: null };
 const getNoSession = () => NO_SESSION;
 const getNoCasts = () => 0;
@@ -208,16 +199,55 @@ function AutoToggle() {
     return () => releaseSession(root);
   }, []);
 
+  // What the settings page says Auto should do here. Read again when the
+  // window comes back, which is when it may have been changed. Auto waits for
+  // the first read, so that it never sets a picker it was told to leave alone.
+  const [known, setKnown] = useState(lastKnownPreferences);
+  useEffect(() => {
+    const read = () => {
+      rpc.call("preferences_get").then(
+        (result) => {
+          lastKnownPreferences = result.preferences;
+          setKnown(result.preferences);
+        },
+        () => {},
+      );
+    };
+    read();
+    window.addEventListener("focus", read);
+    return () => window.removeEventListener("focus", read);
+  }, [rpc]);
+  const { autoSets, holdSend, pace } = known ?? DEFAULT_PREFERENCES;
+  const sets = `${autoSets.project}${autoSets.placement}${autoSets.model}${autoSets.effort}`;
+  const setsAnything = autoSets.project || autoSets.placement || autoSets.model;
+
+  const scope = view.scope;
+  const projectId = scope.kind === "new-thread" ? scope.projectId : null;
   useLayoutEffect(() => {
     session?.attach({
-      route: async (text) => selectionFor((await rpc.call("preview", { text })).decision),
+      route: async (text) => {
+        // A project Auto may not set is the one to route within.
+        const pinned = autoSets.project ? null : projectId;
+        const { decision } = await rpc.call("preview", { text, projectId: pinned });
+        return selectionFor(decision, autoSets);
+      },
       setSelection: (selection) => composer.experimental_setSelection(selection),
     });
-  }, [session, rpc, composer]);
+    // `sets` stands for `autoSets`, which is a new object on every read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, rpc, composer, projectId, sets]);
 
   const text = view.draft.text;
-  useEffect(() => session?.live.setEnabled(enabled), [session, enabled]);
+  useEffect(() => session?.setHoldSend(holdSend), [session, holdSend]);
+  useEffect(() => session?.live.setPace(pace), [session, pace]);
   useEffect(() => session?.live.setText(text), [session, text]);
+  useEffect(() => {
+    if (known !== null) session?.setAutoSets(sets);
+  }, [session, known, sets]);
+  useEffect(
+    () => session?.live.setEnabled(enabled && known !== null && setsAnything),
+    [session, enabled, known, setsAnything],
+  );
 
   // The first request on a cold connection takes a second or more, so the
   // server opens it, and refreshes what it knows about machines and projects,
@@ -302,441 +332,11 @@ function AutoToggle() {
   );
 }
 
-/** Which projects and environments Auto may use, saved as they change. */
-function useScope() {
-  const rpc = useRpc<typeof rpcContract>();
-  const [state, setState] = useState<ScopeOptions | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    rpc.call("scope_get").then(setState, (cause) => setError(errorMessage(cause)));
-  }, [rpc]);
-
-  // Each section saves only the fields it owns; the server merges them.
-  const save = useCallback(
-    (scope: Partial<ScopeOptions["scope"]>) => {
-      setState((current) =>
-        current === null ? current : { ...current, scope: { ...current.scope, ...scope } },
-      );
-      rpc.call("scope_set", { scope }).then(
-        () => setError(null),
-        (cause) => setError(errorMessage(cause)),
-      );
-    },
-    [rpc],
-  );
-  return { state, error, save };
-}
-
-function OptionRow({
-  name,
-  detail,
-  checked,
-  disabled,
-  onCheckedChange,
-}: {
-  name: string;
-  detail: string;
-  checked: boolean;
-  disabled?: boolean;
-  onCheckedChange(checked: boolean): void;
-}) {
-  return (
-    <li>
-      <label className="flex cursor-pointer items-start gap-3 py-2 text-sm">
-        <Checkbox
-          className="mt-0.5"
-          checked={checked}
-          disabled={disabled}
-          onCheckedChange={(next) => onCheckedChange(next === true)}
-        />
-        <span className="min-w-0">
-          <span className="block font-medium text-foreground">{name}</span>
-          {detail !== "" && (
-            <span className="block truncate text-xs text-muted-foreground">{detail}</span>
-          )}
-        </span>
-      </label>
-    </li>
-  );
-}
-
-function ProjectsSection() {
-  const { state, error, save } = useScope();
-  if (state === null) {
-    return <p className="text-sm text-muted-foreground">{error ?? "Loading…"}</p>;
-  }
-  const { scope, projects } = state;
-  const picked = new Set(scope.projectIds);
-  return (
-    <div className="space-y-2">
-      <label className="flex cursor-pointer items-center gap-2 text-sm">
-        <Switch
-          checked={scope.allProjects}
-          onCheckedChange={(allProjects) =>
-            save({
-              allProjects,
-              // Start the list from everything, so narrowing is a matter of unchecking.
-              projectIds:
-                !allProjects && scope.projectIds.length === 0
-                  ? projects.map((project) => project.id)
-                  : scope.projectIds,
-            })
-          }
-          aria-label="All projects"
-        />
-        <span className="font-medium text-foreground">All projects</span>
-        <span className="text-muted-foreground">including ones you add later</span>
-      </label>
-      {!scope.allProjects && (
-        <>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => save({ projectIds: projects.map((project) => project.id) })}
-            >
-              Select all
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => save({ projectIds: [] })}>
-              Clear
-            </Button>
-          </div>
-          <ul className="divide-y divide-border">
-            {projects.map((project) => (
-              <OptionRow
-                key={project.id}
-                name={project.name}
-                detail={project.detail}
-                checked={picked.has(project.id)}
-                onCheckedChange={(checked) =>
-                  save({
-                    projectIds: checked
-                      ? [...scope.projectIds, project.id]
-                      : scope.projectIds.filter((id) => id !== project.id),
-                  })
-                }
-              />
-            ))}
-          </ul>
-          {picked.size === 0 && (
-            <p className="text-sm text-destructive">Pick at least one project for Auto to use.</p>
-          )}
-        </>
-      )}
-      {error !== null && <p className="text-sm text-destructive">{error}</p>}
-    </div>
-  );
-}
-
-function EnvironmentsSection() {
-  const { state, error, save } = useScope();
-  if (state === null) {
-    return <p className="text-sm text-muted-foreground">{error ?? "Loading…"}</p>;
-  }
-  const { scope, environments } = state;
-  const picked = new Set(scope.environmentIds);
-  return (
-    <div className="space-y-2">
-      <ul className="divide-y divide-border">
-        {environments.map((environment) => (
-          <OptionRow
-            key={environment.id}
-            name={environment.name}
-            detail={environment.detail}
-            checked={picked.has(environment.id)}
-            // Auto always needs somewhere to run.
-            disabled={picked.has(environment.id) && picked.size === 1}
-            onCheckedChange={(checked) =>
-              save({
-                // Kept in the order listed, which is the order of preference.
-                environmentIds: environments
-                  .map((entry) => entry.id)
-                  .filter((id) => (id === environment.id ? checked : picked.has(id))),
-              })
-            }
-          />
-        ))}
-      </ul>
-      {error !== null && <p className="text-sm text-destructive">{error}</p>}
-    </div>
-  );
-}
-
-const EFFORT_DETAILS: Record<ReasoningLevel, string> = {
-  none: "No extended reasoning.",
-  low: "",
-  medium: "",
-  high: "",
-  xhigh: "",
-  max: "The most a model will think.",
-  ultra: "A special run mode on some providers. Costs far more than a reasoning level.",
-  ultracode: "Claude Code's multi-agent run mode. Costs far more than a reasoning level.",
-};
-
-function EffortSection() {
-  const { state, error, save } = useScope();
-  if (state === null) {
-    return <p className="text-sm text-muted-foreground">{error ?? "Loading…"}</p>;
-  }
-  const picked = new Set(state.scope.reasoningLevels);
-  return (
-    <div className="space-y-2">
-      <ul className="divide-y divide-border">
-        {REASONING_LEVELS.map((level) => (
-          <OptionRow
-            key={level}
-            name={level}
-            detail={EFFORT_DETAILS[level]}
-            checked={picked.has(level)}
-            // Auto always needs some effort to run at.
-            disabled={picked.has(level) && picked.size === 1}
-            onCheckedChange={(checked) =>
-              save({
-                reasoningLevels: REASONING_LEVELS.filter((entry) =>
-                  entry === level ? checked : picked.has(entry),
-                ),
-              })
-            }
-          />
-        ))}
-      </ul>
-      {error !== null && <p className="text-sm text-destructive">{error}</p>}
-    </div>
-  );
-}
-
-function RotationRow({
-  entry,
-  onChange,
-  onRemove,
-}: {
-  entry: RotationEntry;
-  onChange(next: RotationEntry): void;
-  onRemove(): void;
-}) {
-  // Typing saves on blur, so a half-written note never reaches the server.
-  const [note, setNote] = useState(entry.note);
-  useEffect(() => setNote(entry.note), [entry.note]);
-  return (
-    <li className="flex flex-wrap items-center gap-2 py-2">
-      <ProviderModelPicker
-        value={{
-          providerId: entry.providerId,
-          model: entry.model,
-          reasoningLevel: entry.reasoningLevel,
-        }}
-        onChange={(value) =>
-          onChange({
-            ...entry,
-            providerId: value.providerId,
-            model: value.model,
-            reasoningLevel: value.reasoningLevel,
-          })
-        }
-      />
-      <Input
-        className="min-w-48 flex-1"
-        value={note}
-        maxLength={600}
-        placeholder="When to use it, e.g. “UI design and planning”"
-        aria-label="When to use this model"
-        onChange={(event) => setNote(event.target.value)}
-        onBlur={() => {
-          if (note !== entry.note) onChange({ ...entry, note });
-        }}
-      />
-      <Button variant="ghost" size="icon" aria-label="Remove model" onClick={onRemove}>
-        <Icon name="Trash2" className="size-4" />
-      </Button>
-    </li>
-  );
-}
-
-function RotationSection() {
-  const rpc = useRpc<typeof rpcContract>();
-  const [entries, setEntries] = useState<RotationEntry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    rpc.call("rotation_get").then(
-      (result) => setEntries(result.entries),
-      (cause) => setError(errorMessage(cause)),
-    );
-  }, [rpc]);
-
-  const save = useCallback(
-    (next: RotationEntry[]) => {
-      setEntries(next);
-      rpc.call("rotation_set", { entries: next }).then(
-        () => setError(null),
-        (cause) => setError(errorMessage(cause)),
-      );
-    },
-    [rpc],
-  );
-
-  const add = useCallback(async () => {
-    try {
-      const { seed } = await rpc.call("rotation_seed");
-      if (seed === null) {
-        setError("No agent provider is available to pick a model from.");
-        return;
-      }
-      save([...(entries ?? []), seed]);
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  }, [rpc, entries, save]);
-
-  if (entries === null) {
-    return <p className="text-sm text-muted-foreground">{error ?? "Loading…"}</p>;
-  }
-  return (
-    <div className="space-y-2">
-      {entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No models yet. Auto needs at least one to choose from.
-        </p>
-      ) : (
-        <ul className="divide-y divide-border">
-          {entries.map((entry, index) => (
-            <RotationRow
-              key={index}
-              entry={entry}
-              onChange={(next) => save(entries.map((current, i) => (i === index ? next : current)))}
-              onRemove={() => save(entries.filter((_, i) => i !== index))}
-            />
-          ))}
-        </ul>
-      )}
-      <Button variant="outline" size="sm" onClick={() => void add()}>
-        <Icon name="Plus" className="size-4" />
-        Add model
-      </Button>
-      {error !== null && <p className="text-sm text-destructive">{error}</p>}
-    </div>
-  );
-}
-
-function percent(value: number | null): string {
-  return value === null ? "" : `${Math.round(value * 100)}%`;
-}
-
-function DecisionRow({
-  title,
-  pick,
-}: {
-  title: string;
-  pick: DecisionSummary["reasoning"];
-}) {
-  const others = pick.alternatives.filter((alternative) => alternative.probability >= 0.05);
-  return (
-    <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 py-1.5 text-sm">
-      <dt className="text-muted-foreground">{title}</dt>
-      <dd className="min-w-0">
-        <span className="font-medium text-foreground">{pick.label}</span>{" "}
-        <span className="text-muted-foreground">
-          {pick.source === "only-option"
-            ? "only option"
-            : `${percent(pick.probability)}${pick.source === "fallback" ? " fallback" : ""}`}
-        </span>
-        {others.length > 0 && (
-          <div className="truncate text-xs text-muted-foreground">
-            also {others.map((other) => `${other.label} ${percent(other.probability)}`).join(", ")}
-          </div>
-        )}
-      </dd>
-    </div>
-  );
-}
-
-function TrySection() {
-  const rpc = useRpc<typeof rpcContract>();
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [decision, setDecision] = useState<DecisionSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const run = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      setDecision((await rpc.call("preview", { text })).decision);
-    } catch (cause) {
-      setDecision(null);
-      setError(errorMessage(cause));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="space-y-3">
-      <Textarea
-        value={text}
-        rows={3}
-        placeholder="Fix the crash when the iOS app opens a deep link…"
-        aria-label="Prompt to route"
-        onChange={(event) => setText(event.target.value)}
-      />
-      <Button size="sm" disabled={busy || text.trim() === ""} onClick={() => void run()}>
-        {busy ? "Routing…" : "Route it"}
-      </Button>
-      {error !== null && <p className="text-sm text-destructive">{error}</p>}
-      {decision !== null && (
-        <dl className="divide-y divide-border rounded-md border border-border px-3">
-          <DecisionRow title="Project" pick={decision.project} />
-          <DecisionRow title="Machine" pick={decision.machine} />
-          <DecisionRow title="Model" pick={decision.model} />
-          <DecisionRow title="Reasoning" pick={decision.reasoning} />
-          <DecisionRow title="Environment" pick={decision.environment} />
-          <div className="py-1.5 text-xs text-muted-foreground">
-            Decided in {decision.latencyMs}ms
-          </div>
-        </dl>
-      )}
-    </div>
-  );
-}
-
 export default definePluginApp((app) => {
   app.composer.customize({
     id: "auto",
     scopes: ["new-thread"],
     actions: [{ id: "toggle", component: AutoToggle }],
   });
-  app.slots.settingsSection({
-    id: "projects",
-    title: "Projects",
-    description: "The projects Auto may choose between.",
-    component: ProjectsSection,
-  });
-  app.slots.settingsSection({
-    id: "environments",
-    title: "Environments",
-    description:
-      "Where a dispatched thread works. With one checked, Auto always uses it. With several, Jev picks one per prompt. A project that none of them can serve, such as one that is not a git repository, falls back to Project checkout.",
-    component: EnvironmentsSection,
-  });
-  app.slots.settingsSection({
-    id: "rotation",
-    title: "Model rotation",
-    description:
-      "The models Auto may pick, each with a note on when to use it. You add models, not model-and-effort pairs: Jev picks the effort for each prompt from the levels that model supports and you allow below. The effort shown on a row is ignored unless the model offers no choice.",
-    component: RotationSection,
-  });
-  app.slots.settingsSection({
-    id: "effort",
-    title: "Effort levels",
-    description:
-      "The reasoning efforts Auto may pick. Jev only chooses among the checked levels a model supports, and an unchecked level is never used. Ultra and ultracode are off unless you turn them on.",
-    component: EffortSection,
-  });
-  app.slots.settingsSection({
-    id: "try",
-    title: "Try it",
-    description: "See where a prompt would go. Nothing is started.",
-    component: TrySection,
-  });
+  registerSettings(app);
 });

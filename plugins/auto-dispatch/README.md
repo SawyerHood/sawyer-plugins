@@ -16,26 +16,23 @@ bb plugin install git:https://github.com/SawyerHood/sawyer-plugins.git --plugin 
 
 ## Set up
 
-Open **Settings → Auto Dispatch**.
+Open **Settings → Auto Dispatch**. The page runs in the order you need it.
 
-1. Paste a **Vercel AI Gateway API key** (Vercel dashboard → AI Gateway → API keys), an **OpenRouter API key** ([openrouter.ai/keys](https://openrouter.ai/keys)), or both. Keys are stored as secrets on the BB server and never sent to the browser. **Jev provider** picks which to use: `auto` uses whichever key is set, and with both set it asks the Vercel AI Gateway first and OpenRouter if that fails.
-2. Under **Model rotation**, add the models Auto may pick. Each row is a provider and model, plus a note on when to use it, such as “UI design and planning”. You add models, not model-and-effort pairs: Jev picks the effort for each prompt from the levels that model supports. The effort shown on a row is ignored unless the model offers no choice.
-3. Under **Projects**, leave **All projects** on, or turn it off and check the projects Auto may choose between. “No project” is one of them: it lets a prompt that fits no repository start a projectless thread.
-4. Under **Environments**, check where threads may work. **Worktree** alone is the default, so every thread gets a fresh git worktree. Check more than one and Jev picks per prompt, for example a worktree for a code change and the project checkout for a question. A project none of them can serve, such as one that is not a git repository, falls back to Project checkout.
-5. Under **Effort levels**, check the reasoning efforts Auto may pick. An unchecked level is never used, whatever a model supports. `ultra` and `ultracode` are special run modes that cost far more, so they start unchecked; check them if you want Auto to be able to use them.
-6. Optionally write instructions. Each is plain English that Jev reads with the matching question:
+1. **Configuration.** Paste a **Vercel AI Gateway API key** (Vercel dashboard → AI Gateway → API keys), an **OpenRouter API key** ([openrouter.ai/keys](https://openrouter.ai/keys)), or both. Keys are stored as secrets on the BB server and never sent to the browser. **Jev provider** picks which to use: `auto` uses whichever key is set, and with both set it asks the Vercel AI Gateway first and OpenRouter if that fails.
+2. **Try it.** Route a prompt without starting anything. The line above it says whether Jev was reached, through which gateway, and how long the last decision took, so it is also the quickest check that a key works. Come back to it after every change below.
+3. **In the composer.** What Auto does while it is on:
+   - **Auto may set** chooses which pickers are Auto's: project, machine and environment, model, effort. Switch one off and it is always yours. With the project off, Auto routes within whichever project the composer is on. Effort needs Model, because Jev chooses the effort for the model it chose.
+   - **Hold send until Auto has decided** is on by default. Off, send is never held, and a draft may go before the pickers catch up with it.
+   - **Ask Jev** is “As I type” by default. “When I pause” waits until typing stops, which sends far fewer drafts to TypeSafe and moves the pickers less.
+4. **About you.** Anything Jev should always know, sent with every question: “I'm a solo developer. My main repo is bb.”
+5. **Projects.** Leave **All projects** on, or turn it off and add the projects Auto may choose between. **No project** is one of them, first in the list: it lets a prompt that fits no repository start a projectless thread. Below it, say how to choose: “Anything about the iOS app goes to the mobile project.”
+6. **Machines.** What Jev is told about each connected machine, word for word, so you can see what your instructions have to work with: “iOS and macOS work must run on the MacBook. Prefer the Linux server otherwise.”
+7. **Environments.** Where threads may work. **Worktree** alone is the default, so every thread gets a fresh git worktree. Switch on more than one and Jev picks per prompt, guided by what you write below: “Use a worktree for anything that changes code, the project checkout for questions.” A project none of them can serve, such as one that is not a git repository, falls back to Project checkout.
+8. **Models and effort.** Add the models Auto may pick, each with a note on when to use it, such as “UI design and planning”. You add models, not model-and-effort pairs: Jev picks the effort for each prompt from the levels the model supports and **Effort Auto may use** allows. The effort shown on a row is only a fallback, for a model that offers no choice. `ultra` and `ultracode` are special run modes that cost far more, so they start off. Below, say how to choose: “Use Fable for UI design and planning, Opus for most other tasks, Sonnet for simple tasks.”
 
-| Setting | Read when choosing | Example |
-| --- | --- | --- |
-| General instructions | everything | “I'm a solo developer. My main repo is bb.” |
-| Model instructions | the model and the reasoning level | “Use Fable for UI design and planning, Opus for most other tasks, Sonnet for simple tasks.” |
-| Project instructions | the project | “Anything about the iOS app goes to the mobile project.” |
-| Machine instructions | the machine | “iOS and macOS work must run on the MacBook. Prefer the Linux server otherwise.” |
-| Environment instructions | the environment, when more than one is allowed | “Use a worktree for anything that changes code, the project checkout for questions.” |
+Two folds at the bottom hold what is rarely touched. **Command line** has the permission mode for threads started with `bb auto-dispatch spawn`, lowered where the machine or provider allows less; in the composer, the permission picker is yours. **Advanced** has the Jev model id for each gateway.
 
-**Permission mode** applies to threads started with `bb auto-dispatch spawn`, and is lowered where the machine or provider allows less. In the composer, the permission picker is yours.
-
-Use **Try it** at the bottom of the page to route a prompt without starting anything.
+Only the keys and the Jev provider are BB plugin settings. The rest are the plugin's own preferences, which `bb auto-dispatch preferences` reads and writes from a shell; `bb plugin config` does not reach them. BB draws declared settings as one flat card with no way to group them, and keeping the instructions beside the lists they govern mattered more.
 
 ## How a prompt is routed
 
@@ -48,7 +45,7 @@ Jev answers many questions about one piece of state in a single request, about a
 
 Your general instructions ride in the shared state; each question carries the instructions for its own choice. With a very large number of machine groups, the rarest questions wait for a second request.
 
-Jev is weak at arithmetic and exact comparison, so code does the parts that need facts. Only machines that hold the chosen project, offer an allowed environment, and can run the chosen provider are offered. Machine load is put into words (“CPU load is low (7% of 16 cores)”, “busy, 3 agent threads running now”) beside the numbers. A question with a single candidate is not asked at all. Jev is only ever offered the effort levels you checked under **Effort levels**.
+Jev is weak at arithmetic and exact comparison, so code does the parts that need facts. Only machines that hold the chosen project, offer an allowed environment, and can run the chosen provider are offered. Machine load is put into words (“CPU load is low (7% of 16 cores)”, “busy, 3 agent threads running now”) beside the numbers. A question with a single candidate is not asked at all. Jev is only ever offered the effort levels you allow under **Effort Auto may use**.
 
 Machine details come from a small host entry that runs on each enrolled machine and reports its operating system, CPU count and load, memory, and free disk. See exactly what Jev is told with `bb auto-dispatch machines`.
 
@@ -66,6 +63,8 @@ bb auto-dispatch spawn "<prompt>" [--json]               # route it and start th
 bb auto-dispatch machines [--json]                       # what Jev is told about each machine
 bb auto-dispatch rotation get [--json]                   # the model rotation
 bb auto-dispatch rotation set '<json>'                   # replace it
+bb auto-dispatch preferences get [--json]                # the instructions and the other preferences
+bb auto-dispatch preferences set <key> <value>           # set one, for example modelInstructions
 bb auto-dispatch history [--days 14] [--json]            # the model and effort you chose per thread
 bb auto-dispatch backtest [--days 14] [--map <regex>=<model>]... [--exclude <regex>] [--json]
                                                          # score the rules against those choices
@@ -77,7 +76,7 @@ The plugin ships a `tune-auto-dispatch` skill. Ask an agent to “tune Auto Disp
 
 ## Privacy and cost
 
-With Auto on, the draft is sent as you type, not only when you send it: every decision sends the prompt so far (the first 9,000 and last 3,000 characters of a long one), your instructions, project names, folders, remotes, and recent thread titles, and machine names and load to TypeSafe through the gateway you chose: the Vercel AI Gateway or OpenRouter. Jev costs $0.042 per million input tokens and a decision is a few thousand tokens, a small fraction of a cent; a prompt typed over ten seconds takes about fifteen of them. The Vercel AI Gateway's free tier allows only about 10 Jev calls per 5 minutes, which Auto uses up within one prompt; any Gateway credit lifts that. OpenRouter bills the same price from your OpenRouter credit.
+With Auto on, the draft is sent as you type, not only when you send it (or each time you pause, if you set **Ask Jev** to “When I pause”): every decision sends the prompt so far (the first 9,000 and last 3,000 characters of a long one), your instructions, project names, folders, remotes, and recent thread titles, and machine names and load to TypeSafe through the gateway you chose: the Vercel AI Gateway or OpenRouter. Jev costs $0.042 per million input tokens and a decision is a few thousand tokens, a small fraction of a cent; a prompt typed over ten seconds takes about fifteen of them. The Vercel AI Gateway's free tier allows only about 10 Jev calls per 5 minutes, which Auto uses up within one prompt; any Gateway credit lifts that. OpenRouter bills the same price from your OpenRouter credit.
 
 ## Limits
 
@@ -97,4 +96,4 @@ npm run build
 bb plugin install . --yes
 ```
 
-`lib/router.ts` holds the routing logic, `lib/live-fill.ts` schedules decisions as the draft changes, `lib/fill.ts` turns a decision into a composer selection, `lib/session.ts` keeps one Auto session per composer, `lib/jev.ts` the Jev client for both gateways, `lib/transport.ts` the warm connection, and `lib/history.ts` the backtest scoring; all but the transport are pure and covered by tests. `server.ts` gathers candidates from the BB SDK and spawns the thread, `host.ts` reports machine stats, and `app.tsx` owns the toggle and the settings sections.
+`lib/router.ts` holds the routing logic, `lib/live-fill.ts` schedules decisions as the draft changes, `lib/fill.ts` turns a decision into a composer selection, `lib/session.ts` keeps one Auto session per composer, `lib/preferences.ts` is the plugin's own settings, shared by the server and the app, `lib/jev.ts` the Jev client for both gateways, `lib/transport.ts` the warm connection, and `lib/history.ts` the backtest scoring; all but the transport are pure and covered by tests. `server.ts` gathers candidates from the BB SDK and spawns the thread, `host.ts` reports machine stats, `app.tsx` owns the toggle, and `settings.tsx` the settings page.

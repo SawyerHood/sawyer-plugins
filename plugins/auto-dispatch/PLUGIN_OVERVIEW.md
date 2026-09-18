@@ -8,7 +8,9 @@ Nothing is hidden and nothing is sent for you. The send button waits, usually a 
 
 ## Tell it how you work
 
-In **Settings → Auto Dispatch**, build the rotation of models Auto may pick, each with a note on when to use it. Choose which projects it may pick from, and which environments: a fresh git worktree per thread by default, or several for Jev to choose between. Choose which effort levels it may use; costly run modes like ultracode stay off unless you turn them on. Write plain-English instructions for choosing models, projects, and machines, such as “Use Fable for UI design and planning, Opus for most other tasks, Sonnet for simple tasks” or “iOS work must run on the MacBook.”
+**Settings → Auto Dispatch** is laid out by the question Jev answers: projects, machines, environments, models and effort. Each has the list Auto may choose from and, beside it, plain-English instructions for choosing, such as “Use Fable for UI design and planning, Opus for most other tasks, Sonnet for simple tasks” or “iOS work must run on the MacBook.” Costly run modes like ultracode stay off unless you turn them on.
+
+You also decide how much Auto does. Choose which pickers it may set, whether send waits for it, and whether it asks Jev as you type or only when you pause.
 
 ## Machines it understands
 

@@ -17,6 +17,7 @@ bb auto-dispatch route "<prompt>" --json
 bb auto-dispatch spawn "<prompt>" --json
 bb auto-dispatch machines --json
 bb auto-dispatch rotation get --json
+bb auto-dispatch preferences get --json
 bb auto-dispatch history --days 14 --json
 ```
 
@@ -31,6 +32,9 @@ bb auto-dispatch history --days 14 --json
   to be started; starting threads is otherwise outside an agent's remit.
 - `machines` prints what Jev is told about each connected machine: operating
   system, CPU load, memory, free disk, and running agent threads.
+- `preferences get|set` reads and writes the routing instructions and the other
+  preferences. They are not BB plugin settings, so `bb plugin config` does not
+  reach them; only the API keys and the choice of gateway are.
 - `rotation get|set`, `history`, and `backtest` read and tune the model
   preferences; the `tune-auto-dispatch` skill explains how to use them together.
 
