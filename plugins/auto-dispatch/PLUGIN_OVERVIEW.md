@@ -2,6 +2,10 @@
 
 Auto Dispatch adds an **Auto** toggle above the new-thread composer. Turn it on and the project, machine, and model pickers disappear. Type a prompt and press Enter, and [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), TypeSafe's fast classifier model, picks the project, the machine, the model, the reasoning level, and the environment. The thread starts there about a second later.
 
+## Or let it fill in the form
+
+Would rather check its work? Leave Auto off and press **Auto-fill**, the wand button beside the send button. Jev makes the same choices and sets the composer's project, machine, environment, model, and reasoning pickers to them without sending. Change anything you disagree with, then send as usual.
+
 ## Tell it how you work
 
 In **Settings → Auto Dispatch**, build the rotation of models Auto may pick, each with a note on when to use it. Choose which projects it may pick from, and which environments: a fresh git worktree per thread by default, or several for Jev to choose between. Choose which effort levels it may use; costly run modes like ultracode stay off unless you turn them on. Write plain-English instructions for choosing models, projects, and machines, such as “Use Fable for UI design and planning, Opus for most other tasks, Sonnet for simple tasks” or “iOS work must run on the MacBook.”

@@ -20,6 +20,11 @@ export function findRootComposer(element: Element): HTMLElement | null {
   return root !== null && root.querySelector(ROOT_COMPOSE_EDITOR) !== null ? root : null;
 }
 
+/** The root New thread screen's editor, wherever BB has currently mounted it. */
+export function findRootComposeEditor(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(ROOT_COMPOSE_EDITOR);
+}
+
 /**
  * Report the root New thread composer containing `element` once it can be
  * recognized. The banner mounts before the editor does on a return visit, so

@@ -4,6 +4,7 @@ A BB plugin that picks where a new thread runs. Flip on **Auto** above the new-t
 
 - With Auto on, the project, environment, permission, and model pickers are hidden. Type a prompt and press Enter; the thread starts where Jev sent it, and a toast says where that was.
 - With Auto off, the composer behaves exactly as it always has. The toggle is remembered per browser.
+- With Auto off, **Auto-fill**, the wand button beside the send button, fills in the form instead. Write a prompt and press it: Jev makes the same choices, but instead of starting the thread it sets the composer's project, machine, environment, model, and reasoning pickers to them. Change whatever you disagree with, then send as usual. Permission mode is left as you had it.
 - Attachments and @-mentions in the draft travel with the prompt.
 
 ## Install
@@ -81,7 +82,8 @@ Each dispatch sends the prompt (the first 9,000 and last 3,000 characters of a l
 
 - The plugin SDK cannot hide the composer's pickers or take over its send, so Auto mode does both against the composer's DOM: a stylesheet hides the pickers, and capture-phase listeners route Enter and the send button to the plugin. The selectors live in `lib/composer-dom.ts` and `app.css`. A BB release that renames them would bring the pickers back or make Enter send normally; it cannot send a prompt twice.
 - The SDK exposes the draft's text but not its attachments or mention pills, so those are read from the draft BB keeps in `localStorage`. If that ever stops matching the composer, Auto refuses to send a draft with attachments rather than dropping them.
-- Auto works on the root New thread screen only, not in composers other plugins embed or in follow-ups to an existing thread.
+- The SDK cannot set the composer's pickers either, so Auto-fill calls the composer's own setters, the ones its pickers call, which it finds on BB's components through React's fiber tree. The React internals and BB prop names it trusts live in `lib/composer-fiber.ts`. A BB release that renames them hides the button, or makes it report that it cannot reach the pickers; it cannot set a wrong value. Filled-in choices are remembered by the pickers exactly as hand-picked ones are, and count as your own choices in `bb auto-dispatch history`.
+- Auto and Auto-fill work on the root New thread screen only, not in composers other plugins embed or in follow-ups to an existing thread.
 - Choosing a project relies on names, folders, and recent thread titles. Similarly named projects need a line in **Project instructions**.
 
 ## Development
@@ -94,4 +96,4 @@ npm run build
 bb plugin install . --yes
 ```
 
-`lib/router.ts` holds the routing logic, `lib/jev.ts` the Jev client for both gateways, `lib/transport.ts` the warm connection, and `lib/history.ts` the backtest scoring; all but the transport are pure and covered by tests. `server.ts` gathers candidates from the BB SDK and spawns the thread, `host.ts` reports machine stats, and `app.tsx` owns the toggle and the settings sections.
+`lib/router.ts` holds the routing logic, `lib/jev.ts` the Jev client for both gateways, `lib/transport.ts` the warm connection, and `lib/history.ts` the backtest scoring; all but the transport are pure and covered by tests. `server.ts` gathers candidates from the BB SDK and spawns the thread, `host.ts` reports machine stats, and `app.tsx` owns the toggle, the Auto-fill button, and the settings sections.

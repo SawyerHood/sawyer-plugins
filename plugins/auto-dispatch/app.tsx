@@ -1,7 +1,9 @@
-// Auto Dispatch frontend: the Auto toggle above the New thread composer, and
-// the plugin's settings sections: which projects and environments Auto may
-// choose between, the model rotation, and a routing test.
+// Auto Dispatch frontend: the Auto toggle above the New thread composer, the
+// Auto-fill button inside it, and the plugin's settings sections: which
+// projects and environments Auto may choose between, the model rotation, and a
+// routing test.
 import {
+  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -9,6 +11,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { WandSparklesIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { toast } from "sonner";
 import {
   definePluginApp,
@@ -22,15 +26,27 @@ import {
 import type { DecisionSummary, rpcContract, ScopeOptions } from "./server";
 import type { RotationEntry } from "./lib/router";
 import { autoMode } from "@/lib/auto-mode";
-import { AUTO_ATTRIBUTE, interceptSubmit, watchRootComposer } from "@/lib/composer-dom";
+import {
+  AUTO_ATTRIBUTE,
+  findRootComposeEditor,
+  interceptSubmit,
+  watchRootComposer,
+} from "@/lib/composer-dom";
+import { canFillComposer, fillComposer } from "@/lib/composer-fiber";
 import { buildDispatchPayload, parseStoredDraft, ROOT_DRAFT_STORAGE_KEY } from "@/lib/draft";
 import { REASONING_LEVELS, type ReasoningLevel } from "@/lib/reasoning";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  COARSE_POINTER_ICON_SIZE_CLASS,
+  COARSE_POINTER_PROMPT_ICON_ACTION_BUTTON_CLASS,
+} from "@/components/ui/coarse-pointer-sizing";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import "./app.css";
 
 const SETTINGS_PATH = "/settings/plugins/auto-dispatch";
@@ -56,6 +72,122 @@ function decisionLine(decision: DecisionSummary): string {
   ].join(" · ");
 }
 
+/**
+ * Auto-fill: ask Jev where the draft should run and set the composer's pickers
+ * to the answer, without sending, so the choices can be changed first.
+ * `anchor` is any element this plugin renders inside the composer.
+ */
+function useAutoFill(anchor: RefObject<Element | null>) {
+  const composer = useComposer();
+  const rpc = useRpc<typeof rpcContract>();
+  // Only the root New thread composer's pickers can be reached.
+  const [reachable, setReachable] = useState(false);
+  const [filling, setFilling] = useState(false);
+  const latest = useRef(composer);
+  latest.current = composer;
+  const inFlight = useRef(false);
+
+  useLayoutEffect(() => {
+    setReachable(anchor.current !== null && canFillComposer(anchor.current));
+  }, [anchor]);
+
+  const warm = useCallback(() => {
+    rpc.call("warm").catch(() => {});
+  }, [rpc]);
+
+  const fill = useCallback(async () => {
+    if (anchor.current === null || inFlight.current) return;
+    const text = latest.current.text.trim();
+    if (text === "") {
+      toast.error("Write a prompt first, and Auto-fill will pick where it runs.");
+      return;
+    }
+    inFlight.current = true;
+    setFilling(true);
+    latest.current.setTextEffect(ROUTING_EFFECT);
+    try {
+      const { decision } = await rpc.call("preview", { text });
+      // A reasoning pick is labelled with its level.
+      const reasoningLevel = REASONING_LEVELS.find((level) => level === decision.reasoning.label);
+      if (reasoningLevel === undefined) {
+        throw new Error(`Jev picked an unknown reasoning level, “${decision.reasoning.label}”.`);
+      }
+      // BB rebuilds the composer when the project changes, this button included.
+      const currentAnchor = () =>
+        anchor.current?.isConnected === true ? anchor.current : findRootComposeEditor();
+      await fillComposer(currentAnchor, {
+        projectId: decision.project.id,
+        environmentProviderId: decision.environment.id,
+        hostId: decision.machine.id,
+        providerId: decision.model.providerId,
+        model: decision.model.model,
+        reasoningLevel,
+      });
+      toast.success(`Filled in: ${decisionLine(decision)}`);
+    } catch (error) {
+      toast.error(`Auto-fill failed: ${errorMessage(error)}`);
+    } finally {
+      latest.current.setTextEffect(null);
+      inFlight.current = false;
+      setFilling(false);
+    }
+  }, [anchor, rpc]);
+
+  return { reachable, filling, fill, warm };
+}
+
+function AutoFillButton({
+  fill,
+  filling,
+  warm,
+}: Pick<ReturnType<typeof useAutoFill>, "fill" | "filling" | "warm">) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              COARSE_POINTER_PROMPT_ICON_ACTION_BUTTON_CLASS,
+              "text-muted-foreground hover:text-foreground",
+              filling && "auto-dispatch-routing",
+            )}
+            disabled={filling}
+            aria-label="Auto-fill"
+            // The first request on a cold connection is slow; open it on the way to the click.
+            onPointerEnter={warm}
+            onFocus={warm}
+            onClick={() => void fill()}
+          >
+            <HugeiconsIcon
+              icon={WandSparklesIcon}
+              className={COARSE_POINTER_ICON_SIZE_CLASS}
+              data-icon-root=""
+              aria-hidden
+            />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Auto-fill</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+/** The Auto-fill button beside the composer's send button. */
+function AutoFillAction() {
+  const enabled = useAutoMode();
+  const anchor = useRef<HTMLSpanElement>(null);
+  const { reachable, ...autoFill } = useAutoFill(anchor);
+  return (
+    <span ref={anchor} className="contents">
+      {/* With Auto on, the pickers are hidden and Jev chooses as the prompt is sent. */}
+      {reachable && !enabled && <AutoFillButton {...autoFill} />}
+    </span>
+  );
+}
+
 function AutoBanner() {
   const enabled = useAutoMode();
   const composer = useComposer();
@@ -66,6 +198,7 @@ function AutoBanner() {
   const [root, setRoot] = useState<HTMLElement | null>(null);
   const [routing, setRouting] = useState(false);
   const [setup, setSetup] = useState<{ hasApiKey: boolean; rotationSize: number } | null>(null);
+  const { reachable: canFill, ...autoFill } = useAutoFill(marker);
 
   // Auto only takes over the root New thread screen; composers that other
   // plugins embed keep their own submit.
@@ -178,6 +311,8 @@ function AutoBanner() {
         />
         <span className="font-medium text-foreground">Auto</span>
       </label>
+      {/* BB leaves composer actions out of its compact layout, so the button moves here. */}
+      {!enabled && canFill && view.layout === "compact" && <AutoFillButton {...autoFill} />}
       {enabled && routing && <span aria-live="polite">Routing…</span>}
       {enabled && !routing && needsSetup && (
         <span>
@@ -595,6 +730,7 @@ export default definePluginApp((app) => {
     id: "auto",
     scopes: ["new-thread"],
     banners: [{ id: "toggle", chrome: "bare", component: AutoBanner }],
+    actions: [{ id: "fill", component: AutoFillAction }],
   });
   app.slots.settingsSection({
     id: "projects",
