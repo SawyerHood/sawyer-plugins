@@ -1,11 +1,40 @@
 import { definePluginApp, useSettings, type ExperimentalSidebarNavigationProps } from "@get-bb/plugin-sdk/app";
-import { useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import "./app.css";
+
+const LABELS_KEY = "compact-nav:labels";
+
+// A title attribute is a hover tooltip, and a touch device has no hover, so on
+// a phone the icons carry no visible name. Remembering the choice per device
+// keeps a phone showing labels while a desktop stays on icons.
+function useLabelsShown(): [boolean, () => void] {
+  const [shown, setShown] = useState(() => {
+    try {
+      return window.localStorage.getItem(LABELS_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = useCallback(() => {
+    setShown(previous => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(LABELS_KEY, String(next));
+      } catch {
+        // A private window can refuse storage; the toggle still works for the
+        // session.
+      }
+      return next;
+    });
+  }, []);
+  return [shown, toggle];
+}
 
 function IconNavigation({ experimental_Original: Original }: ExperimentalSidebarNavigationProps) {
   const root = useRef<HTMLDivElement>(null);
   const settings = useSettings();
-  const inlineHeader = settings.values?.inlineHeader === true;
+  const [labelsShown, toggleLabels] = useLabelsShown();
+  const inlineHeader = settings.values?.inlineHeader === true && !labelsShown;
 
   useLayoutEffect(() => {
     if (!inlineHeader) return;
@@ -58,7 +87,22 @@ function IconNavigation({ experimental_Original: Original }: ExperimentalSidebar
     };
   }, [inlineHeader]);
 
-  return <div ref={root} className="compact-icon-navigation"><Original /></div>;
+  // Dropping the class is the whole revert: every icon rule is scoped to it,
+  // so BB's own labelled rows render untouched.
+  return (
+    <div ref={root} className={labelsShown ? "compact-nav-labelled" : "compact-icon-navigation"}>
+      <Original />
+      <button
+        type="button"
+        className="compact-nav-labels-toggle"
+        onClick={toggleLabels}
+        aria-expanded={labelsShown}
+        aria-label={labelsShown ? "Show navigation as icons" : "Show navigation labels"}
+      >
+        {labelsShown ? "Use icons" : "Show labels"}
+      </button>
+    </div>
+  );
 }
 
 export default definePluginApp(app => {

@@ -103,3 +103,35 @@
     --compact-nav-icon-size: 20px;
   }
 }
+
+/* The toggle that reveals BB's labels. A title attribute is a hover tooltip,
+   so on a touch device the icons otherwise carry no visible name. */
+.compact-nav-labels-toggle {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 2px 8px 4px 12px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+.compact-nav-labels-toggle:hover {
+  color: var(--foreground);
+  background: var(--sidebar-accent);
+}
+/* The icon row can sit inside the header, where an extra row does not fit. */
+.compact-icon-navigation[data-header-placement] .compact-nav-labels-toggle {
+  display: none;
+}
+/* A pointer that hovers already gets the titles, so the toggle stays for
+   touch, where it is the only way to read a label. */
+@media (hover: hover) and (pointer: fine) {
+  .compact-nav-labels-toggle {
+    display: none;
+  }
+}
