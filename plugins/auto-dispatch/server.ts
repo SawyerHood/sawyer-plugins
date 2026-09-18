@@ -1,0 +1,1348 @@
+// Auto Dispatch: route a new-thread prompt to a project, machine, model, and
+// reasoning level with Jev (TypeSafe's classifier) on the Vercel AI Gateway,
+// then start the thread there. app.tsx owns the composer toggle; this file
+// gathers the candidates, asks Jev, and spawns.
+import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
+import { z } from "zod";
+import { hostContract } from "./contract";
+import {
+  askChoicesVia,
+  JEV_PROVIDERS,
+  JevError,
+  warmRoutes,
+  type JevProvider,
+  type JevRoute,
+} from "./lib/jev";
+import { jevTransport } from "./lib/transport";
+import { SwrCache } from "./lib/cache";
+import {
+  backtestRows,
+  parseMapping,
+  score,
+  tally,
+  type BacktestResult,
+  type HistoryRow,
+} from "./lib/history";
+import { formatSpans, Profiler } from "./lib/profile";
+import { DEFAULT_REASONING_LEVELS, REASONING_LEVELS } from "./lib/reasoning";
+import {
+  describeMachine,
+  route,
+  RouteError,
+  type MachineCandidate,
+  type MachineStats,
+  type ModelCandidate,
+  type Pick,
+  type ProjectCandidate,
+  type ReasoningCandidate,
+  type RotationEntry,
+  type RouteDecision,
+  type Targets,
+} from "./lib/router";
+
+const ROTATION_KEY = "rotation";
+const SCOPE_KEY = "scope";
+const MAX_ROTATION_ENTRIES = 24;
+const RECENT_TITLES_PER_PROJECT = 4;
+const STATS_TIMEOUT_MS = 2_500;
+const STATS_FRESH_MS = 15_000;
+/** Which machines hold a project, and what each can create, rarely change. */
+const AVAILABILITY_FRESH_MS = 30_000;
+/** How old a cached fact may be and still be served while a refresh runs behind it. */
+const SERVE_STALE_MS = 10 * 60_000;
+/**
+ * How long a dispatch waits for a machine to describe itself when nothing is
+ * cached, as just after BB starts. Past this it routes without that detail;
+ * the answer still lands in the cache for next time.
+ */
+const FACT_WAIT_MS = 350;
+const PROVIDER_CHECK_TIMEOUT_MS = 2_500;
+/** A fresh worktree per thread, unless the user picks otherwise. */
+const DEFAULT_ENVIRONMENTS = ["git-worktree"];
+/** Works for any project with a folder, so it backs up environments that need git. */
+const FALLBACK_ENVIRONMENT = "project-checkout";
+/** `auto` uses whichever key is set, and both when both are: the second backs up the first. */
+const JEV_PROVIDER_CHOICES = ["auto", "vercel", "openrouter"] as const;
+const PERMISSION_MODES = ["accept-edits", "auto", "full"] as const;
+type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+const rotationEntrySchema = z
+  .object({
+    providerId: z.string().min(1).max(200),
+    model: z.string().min(1).max(200),
+    note: z.string().max(600),
+    reasoningLevel: z.enum(REASONING_LEVELS),
+  })
+  .strict();
+const rotationSchema = z.array(rotationEntrySchema).max(MAX_ROTATION_ENTRIES);
+
+// Which projects, environments, and effort levels Auto may choose between.
+const scopeSchema = z
+  .object({
+    /** True offers every project, including ones added later and "No project". */
+    allProjects: z.boolean(),
+    /** Offered when `allProjects` is false. The personal project's id means "No project". */
+    projectIds: z.array(z.string().min(1).max(200)).max(1_000),
+    /** Environment provider ids, in order of preference. */
+    environmentIds: z.array(z.string().min(1).max(64)).max(32),
+    /** Effort levels Auto may pick. */
+    reasoningLevels: z.array(z.enum(REASONING_LEVELS)),
+  })
+  .strict();
+type Scope = z.infer<typeof scopeSchema>;
+// No field here may carry a default: a default would be filled in for every
+// field a partial save leaves out, and overwrite what the user had chosen.
+const scopePatchSchema = scopeSchema.partial();
+// Scopes saved before effort levels existed lack the field.
+const storedScopeSchema = scopeSchema.extend({
+  reasoningLevels: scopeSchema.shape.reasoningLevels.optional(),
+});
+const DEFAULT_SCOPE: Scope = {
+  allProjects: true,
+  projectIds: [],
+  environmentIds: DEFAULT_ENVIRONMENTS,
+  reasoningLevels: [...DEFAULT_REASONING_LEVELS],
+};
+
+const pickSchema = z
+  .object({
+    label: z.string(),
+    source: z.enum(["jev", "only-option", "fallback"]),
+    probability: z.number().nullable(),
+    confidence: z.number().nullable(),
+    alternatives: z.array(z.object({ label: z.string(), probability: z.number() }).strict()),
+  })
+  .strict();
+
+const decisionSchema = z
+  .object({
+    project: pickSchema.extend({ id: z.string() }),
+    machine: pickSchema.extend({ id: z.string() }),
+    model: pickSchema.extend({ providerId: z.string(), model: z.string() }),
+    reasoning: pickSchema,
+    environment: pickSchema.extend({ id: z.string() }),
+    latencyMs: z.number(),
+    /** Where the time went; overlapping spans ran in parallel. */
+    timings: z.array(
+      z.object({ name: z.string(), startMs: z.number(), endMs: z.number() }).strict(),
+    ),
+  })
+  .strict();
+export type DecisionSummary = z.infer<typeof decisionSchema>;
+
+// The composer's own draft shapes. Mentions and attachments are forwarded to
+// `threads.spawn`, which validates them in full.
+const attachmentSchema = z
+  .object({
+    type: z.enum(["localImage", "localFile"]),
+    path: z.string().min(1),
+    name: z.string().optional(),
+    mimeType: z.string().optional(),
+    sizeBytes: z.number().optional(),
+  })
+  .strict();
+const mentionSchema = z
+  .object({ start: z.number(), end: z.number(), resource: z.unknown() })
+  .strict();
+
+const promptSchema = z.string().trim().min(1).max(200_000);
+
+export const rpcContract = defineRpcContract({
+  status: {
+    input: z.null(),
+    output: z
+      .object({
+        hasApiKey: z.boolean(),
+        rotationSize: z.number(),
+      })
+      .strict(),
+  },
+  /**
+   * Get ready for a dispatch while the user is still typing: open the
+   * connection to Jev and refresh the facts about machines and projects.
+   */
+  warm: {
+    input: z.null(),
+    output: z.object({ warmed: z.boolean() }).strict(),
+  },
+  rotation_get: {
+    input: z.null(),
+    output: z.object({ entries: rotationSchema }).strict(),
+  },
+  rotation_set: {
+    input: z.object({ entries: rotationSchema }).strict(),
+    output: z.object({ entries: rotationSchema }).strict(),
+  },
+  /** The scope, plus every project and environment it could include. */
+  scope_get: {
+    input: z.null(),
+    output: z
+      .object({
+        scope: scopeSchema,
+        projects: z.array(
+          z.object({ id: z.string(), name: z.string(), detail: z.string() }).strict(),
+        ),
+        environments: z.array(
+          z.object({ id: z.string(), name: z.string(), detail: z.string() }).strict(),
+        ),
+      })
+      .strict(),
+  },
+  /** Merges into the stored scope, so each settings section saves only its own fields. */
+  scope_set: {
+    input: z.object({ scope: scopePatchSchema }).strict(),
+    output: z.object({ scope: scopeSchema }).strict(),
+  },
+  /** A starting value for a new rotation row: the default provider's default model. */
+  rotation_seed: {
+    input: z.null(),
+    output: z.object({ seed: rotationEntrySchema.nullable() }).strict(),
+  },
+  /** Ask Jev where a prompt would go without starting anything. */
+  preview: {
+    input: z.object({ text: promptSchema }).strict(),
+    output: z.object({ decision: decisionSchema }).strict(),
+  },
+  dispatch: {
+    input: z
+      .object({
+        text: promptSchema,
+        mentions: z.array(mentionSchema).max(200).default([]),
+        attachments: z.array(attachmentSchema).max(50).default([]),
+        /** The project the composer uploaded those attachments into. */
+        attachmentProjectId: z.string().nullable().default(null),
+      })
+      .strict(),
+    output: z.object({ threadId: z.string(), decision: decisionSchema }).strict(),
+  },
+});
+
+/** What the Projects and Environments settings sections render. */
+export type ScopeOptions = z.infer<(typeof rpcContract)["scope_get"]["output"]>;
+
+type SpawnInput = NonNullable<Parameters<BbPluginApi["sdk"]["threads"]["spawn"]>[0]["input"]>;
+type TextInput = Extract<SpawnInput[number], { type: "text" }>;
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+  return work(AbortSignal.timeout(ms));
+}
+
+/** `work`'s answer, or `fallback` if it has not arrived within `ms`. The work carries on. */
+function within<T>(ms: number, work: Promise<T>, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+    );
+  });
+}
+
+function summarizePick<T>(pick: Pick<T>): z.infer<typeof pickSchema> {
+  return {
+    label: pick.label,
+    source: pick.source,
+    probability: pick.probability,
+    confidence: pick.confidence,
+    alternatives: pick.alternatives,
+  };
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? "" : ` ${Math.round(value * 100)}%`;
+}
+
+function formatDecision(decision: DecisionSummary): string {
+  const line = (title: string, pick: z.infer<typeof pickSchema>) => {
+    const how =
+      pick.source === "only-option"
+        ? " (only option)"
+        : `${formatPercent(pick.probability)}${pick.source === "fallback" ? " (fallback)" : ""}`;
+    const others = pick.alternatives
+      .filter((alternative) => alternative.probability >= 0.05)
+      .map((alternative) => `${alternative.label}${formatPercent(alternative.probability)}`)
+      .join(", ");
+    return `${title.padEnd(12)}${pick.label}${how}${others === "" ? "" : `   also: ${others}`}`;
+  };
+  return [
+    line("Project", decision.project),
+    line("Machine", decision.machine),
+    line("Model", decision.model),
+    line("Reasoning", decision.reasoning),
+    line("Environment", decision.environment),
+    `Decided in ${decision.latencyMs}ms`,
+  ].join("\n");
+}
+
+export default async function plugin(bb: BbPluginApi) {
+  const settings = bb.settings.define({
+    gatewayApiKey: {
+      type: "string",
+      label: "Vercel AI Gateway API key",
+      description:
+        "One way to reach Jev; set this, an OpenRouter key, or both. Create one in the Vercel dashboard under AI Gateway → API keys. The free tier allows only about 10 Jev calls per 5 minutes; any Gateway credit lifts that.",
+      secret: true,
+    },
+    openRouterApiKey: {
+      type: "string",
+      label: "OpenRouter API key",
+      description:
+        "The other way to reach Jev (typesafe/jev-1.13). Create one at https://openrouter.ai/keys.",
+      secret: true,
+    },
+    jevProvider: {
+      type: "select",
+      label: "Jev provider",
+      description:
+        "Which key to route with. “auto” uses whichever key is set; with both set it asks the Vercel AI Gateway first and OpenRouter if that fails.",
+      options: [...JEV_PROVIDER_CHOICES],
+      default: "auto",
+    },
+    generalInstructions: {
+      type: "string",
+      label: "General instructions",
+      description:
+        "Context sent with every routing question: who you are, what your setup is, anything Jev should always know.",
+      experimental_multiline: true,
+      experimental_schema: z.string().max(4_000),
+      default: "",
+    },
+    modelInstructions: {
+      type: "string",
+      label: "Model instructions",
+      description:
+        "How to choose a model and reasoning level, for example “Use Fable for UI design and planning, Opus for most other tasks, Sonnet for simple tasks.” Pick the models themselves in the rotation below.",
+      experimental_multiline: true,
+      experimental_schema: z.string().max(4_000),
+      default: "",
+    },
+    projectInstructions: {
+      type: "string",
+      label: "Project instructions",
+      description:
+        "How to choose a project, for example “Anything about the iOS app goes to the mobile project.”",
+      experimental_multiline: true,
+      experimental_schema: z.string().max(4_000),
+      default: "",
+    },
+    machineInstructions: {
+      type: "string",
+      label: "Machine instructions",
+      description:
+        "How to choose a machine, for example “iOS and macOS work must run on the MacBook. Prefer the Linux server for everything else.”",
+      experimental_multiline: true,
+      experimental_schema: z.string().max(4_000),
+      default: "",
+    },
+    environmentInstructions: {
+      type: "string",
+      label: "Environment instructions",
+      description:
+        "How to choose an environment when you allow more than one below, for example “Use a worktree for anything that changes code, the project checkout for questions.”",
+      experimental_multiline: true,
+      experimental_schema: z.string().max(4_000),
+      default: "",
+    },
+    permissionMode: {
+      type: "select",
+      label: "Permission mode",
+      description:
+        "Permission mode for auto-dispatched threads. Lowered automatically where a machine or provider allows less.",
+      options: [...PERMISSION_MODES],
+      default: "auto",
+    },
+    jevModel: {
+      type: "string",
+      label: "Jev model id on Vercel",
+      description: "The Vercel AI Gateway model id to route with.",
+      experimental_schema: z.string().trim().min(1).max(200),
+      default: JEV_PROVIDERS.vercel.defaultModel,
+    },
+    openRouterJevModel: {
+      type: "string",
+      label: "Jev model id on OpenRouter",
+      description: "The OpenRouter model id to route with.",
+      experimental_schema: z.string().trim().min(1).max(200),
+      default: JEV_PROVIDERS.openrouter.defaultModel,
+    },
+  });
+
+  const host = bb.hosts.experimental_client({ contract: hostContract });
+  // The warm connections to Jev belong to this load of the plugin.
+  bb.onDispose(() => jevTransport.close());
+
+  async function readRotation(): Promise<RotationEntry[]> {
+    const parsed = rotationSchema.safeParse(await bb.storage.kv.get(ROTATION_KEY));
+    return parsed.success ? parsed.data : [];
+  }
+
+  async function readScope(): Promise<Scope> {
+    const parsed = storedScopeSchema.safeParse(await bb.storage.kv.get(SCOPE_KEY));
+    if (!parsed.success) return DEFAULT_SCOPE;
+    // Auto always needs somewhere to run and some effort to run at.
+    return {
+      ...parsed.data,
+      environmentIds:
+        parsed.data.environmentIds.length === 0 ? DEFAULT_ENVIRONMENTS : parsed.data.environmentIds,
+      reasoningLevels:
+        parsed.data.reasoningLevels === undefined || parsed.data.reasoningLevels.length === 0
+          ? [...DEFAULT_REASONING_LEVELS]
+          : parsed.data.reasoningLevels,
+    };
+  }
+
+  /** The ways to reach Jev that are set up, in the order to try them. */
+  async function jevRoutes(): Promise<JevRoute[]> {
+    const config = await settings.get();
+    const secret = (value: unknown) =>
+      typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+    const keys = {
+      vercel: secret(config.gatewayApiKey),
+      openrouter: secret(config.openRouterApiKey),
+    };
+    const models = { vercel: config.jevModel, openrouter: config.openRouterJevModel };
+    const order: JevProvider[] =
+      config.jevProvider === "vercel" || config.jevProvider === "openrouter"
+        ? [config.jevProvider]
+        : ["vercel", "openrouter"];
+    return order.flatMap((provider): JevRoute[] => {
+      const apiKey = keys[provider];
+      return apiKey === null ? [] : [{ provider, apiKey, model: models[provider] }];
+    });
+  }
+
+  type EnvironmentProvider = Awaited<
+    ReturnType<typeof bb.sdk.environments.listProviders>
+  >[number];
+
+  // A dispatch reads these through caches, so it never waits on a machine
+  // that is slow to answer. `warm` fills them while the user is still typing.
+  const statsCache = new SwrCache<MachineStats>(
+    (hostId) =>
+      withTimeout((signal) => host.call("stats", null, { hostId, signal }), STATS_TIMEOUT_MS),
+    STATS_FRESH_MS,
+    SERVE_STALE_MS,
+  );
+  const hostProvidersCache = new SwrCache<Map<string, boolean>>(
+    async (hostId) => {
+      const providers = await withTimeout(
+        (signal) => bb.sdk.providers.list({ hostId, signal }),
+        PROVIDER_CHECK_TIMEOUT_MS,
+      );
+      return new Map(providers.map((entry) => [entry.id, entry.available] as const));
+    },
+    AVAILABILITY_FRESH_MS,
+    SERVE_STALE_MS,
+  );
+  const environmentsCache = new SwrCache<EnvironmentProvider[]>(
+    (projectId) => bb.sdk.environments.listProviders({ projectId }),
+    AVAILABILITY_FRESH_MS,
+    SERVE_STALE_MS,
+  );
+
+  async function machineStats(hostId: string): Promise<MachineStats | null> {
+    try {
+      return await statsCache.get(hostId);
+    } catch (error) {
+      bb.log.warn(`machine stats unavailable for ${hostId}: ${messageOf(error)}`);
+      return null;
+    }
+  }
+
+  /** Provider id → available, or null when the machine could not be asked. */
+  async function machineProviders(hostId: string): Promise<Map<string, boolean> | null> {
+    try {
+      return await hostProvidersCache.get(hostId);
+    } catch (error) {
+      bb.log.warn(`provider check failed for ${hostId}: ${messageOf(error)}`);
+      return null;
+    }
+  }
+
+  /** The connected machines, with how many threads each is running right now. */
+  async function loadMachines() {
+    const [hosts, systemConfig, running] = await Promise.all([
+      bb.sdk.hosts.list(),
+      bb.sdk.system.config(),
+      bb.sdk.threads.count({ groupBy: "host", status: "active" }),
+    ]);
+    const runningByHost = new Map(
+      (running.groups ?? []).map((group) => [group.key, group.count] as const),
+    );
+    const connected = hosts.filter(
+      (entry) => entry.status === "connected" && entry.lifecycle.phase === "active",
+    );
+    const candidate = (
+      entry: (typeof hosts)[number],
+      stats: MachineStats | null,
+      projectPath: string | null,
+      environmentIds: string[],
+    ): MachineCandidate => ({
+      id: entry.id,
+      name: entry.name,
+      isServer: entry.id === systemConfig.primaryHostId,
+      stats,
+      runningThreads: runningByHost.get(entry.id) ?? 0,
+      projectPath,
+      environmentIds,
+    });
+    return { hosts, connected, candidate };
+  }
+
+  async function loadProjects(scope: Scope): Promise<ProjectCandidate[]> {
+    const projects = await bb.sdk.projects.list({ includePersonal: true, include: "threads" });
+    const candidates: ProjectCandidate[] = [];
+    for (const project of projects) {
+      const isPersonal = project.kind === "personal";
+      if (!scope.allProjects && !scope.projectIds.includes(project.id)) continue;
+      const threads = "threads" in project ? project.threads : [];
+      candidates.push({
+        id: project.id,
+        name: project.name,
+        isPersonal,
+        gitRemoteUrl: project.gitRemoteUrl,
+        sources: project.sources.map((source) => ({ hostId: source.hostId, path: source.path })),
+        recentThreadTitles: threads
+          .filter((thread) => thread.archivedAt === null)
+          .map((thread) => (thread.title ?? thread.titleFallback ?? "").trim().slice(0, 80))
+          .filter((title) => title !== "")
+          .slice(0, RECENT_TITLES_PER_PROJECT),
+      });
+    }
+    return candidates;
+  }
+
+  type ModelCatalog = Awaited<ReturnType<typeof bb.sdk.providers.models>>;
+
+  async function loadModels(rotation: RotationEntry[]): Promise<{
+    models: ModelCandidate[];
+    catalogs: Map<string, ModelCatalog>;
+  }> {
+    const catalogs = new Map<string, ModelCatalog>();
+    await Promise.all(
+      [...new Set(rotation.map((entry) => entry.providerId))].map(async (providerId) => {
+        try {
+          catalogs.set(providerId, await bb.sdk.providers.models({ providerId }));
+        } catch (error) {
+          bb.log.warn(`model catalog unavailable for ${providerId}: ${messageOf(error)}`);
+        }
+      }),
+    );
+    const models = rotation.map((entry): ModelCandidate => {
+      const catalog = catalogs.get(entry.providerId);
+      const model = catalog?.models.find((candidate) => candidate.model === entry.model);
+      const provider = catalog?.providers.find((candidate) => candidate.id === entry.providerId);
+      return {
+        ...entry,
+        providerName: provider?.displayName ?? entry.providerId,
+        displayName: model?.displayName ?? entry.model,
+        description: model?.description ?? "",
+      };
+    });
+    return { models, catalogs };
+  }
+
+  interface RoutedThread {
+    decision: RouteDecision;
+    profiler: Profiler;
+    /** Null for a provider that declares no inputs, else its all-defaults inputs. */
+    environmentInputs: Record<string, never> | null;
+    permissionMode: PermissionMode;
+  }
+
+  /** Providers Auto can fill in by itself: no new machine, no inputs only a person can give. */
+  function isAutomatic(provider: EnvironmentProvider): boolean {
+    return (
+      provider.machineProviderId === null && (provider.inputs === null || provider.acceptsEmptyInputs)
+    );
+  }
+
+  async function decide(text: string): Promise<RoutedThread> {
+    const profiler = new Profiler();
+    const config = await profiler.time("settings", () => settings.get());
+    const routes = await profiler.time("settings.keys", () => jevRoutes());
+    if (routes.length === 0) {
+      throw new RouteError(
+        config.jevProvider === "auto"
+          ? "Add a Vercel AI Gateway or OpenRouter API key in Auto Dispatch settings first."
+          : config.jevProvider === "openrouter"
+            ? "Add an OpenRouter API key in Auto Dispatch settings, or set the Jev provider to auto."
+            : "Add a Vercel AI Gateway API key in Auto Dispatch settings, or set the Jev provider to auto.",
+      );
+    }
+    const rotation = await profiler.time("kv.rotation", () => readRotation());
+    if (rotation.length === 0) {
+      throw new RouteError("Add at least one model to the rotation in Auto Dispatch settings.");
+    }
+
+    const scope = await profiler.time("kv.scope", () => readScope());
+    const [projects, { models, catalogs }, { hosts, connected, candidate }] = await Promise.all([
+      profiler.time("load.projects", () => loadProjects(scope)),
+      profiler.time("load.modelCatalogs", () => loadModels(rotation)),
+      profiler.time("load.machines", () => loadMachines()),
+    ]);
+    if (connected.length === 0) throw new RouteError("No machine is connected.");
+    // A project checked out only on machines that are offline cannot run
+    // anywhere right now, so it is not worth offering.
+    const online = new Set(connected.map((entry) => entry.id));
+    const reachable = projects.filter(
+      (project) => project.isPersonal || project.sources.some((source) => online.has(source.hostId)),
+    );
+    if (reachable.length === 0) {
+      throw new RouteError(
+        projects.length === 0
+          ? "Pick at least one project for Auto in Auto Dispatch settings."
+          : "None of the projects Auto may use is on a connected machine.",
+      );
+    }
+    // Everything code must know before Jev is asked anything: what each
+    // machine is doing, which providers it runs, and which environments it can
+    // create for each project. All cached, all fetched side by side.
+    const [statsByHost, providersByHost, environmentsByProject] = await Promise.all([
+      profiler.time("facts.machineStats", async () =>
+        new Map(
+          await Promise.all(
+            connected.map(
+              async (entry) =>
+                [entry.id, await within(FACT_WAIT_MS, machineStats(entry.id), null)] as const,
+            ),
+          ),
+        ),
+      ),
+      profiler.time("facts.machineProviders", async () =>
+        new Map(
+          await Promise.all(
+            connected.map(
+              async (entry) =>
+                [entry.id, await within(FACT_WAIT_MS, machineProviders(entry.id), null)] as const,
+            ),
+          ),
+        ),
+      ),
+      profiler.time("facts.environments", async () =>
+        new Map(
+          await Promise.all(
+            reachable.map(
+              async (project) => [project.id, await environmentsCache.get(project.id)] as const,
+            ),
+          ),
+        ),
+      ),
+    ]);
+
+    let permissionMode: PermissionMode =
+      PERMISSION_MODES.find((mode) => mode === config.permissionMode) ?? "auto";
+
+    interface TargetDetail extends Targets {
+      usedFallback: boolean;
+      inputs: Map<string, RoutedThread["environmentInputs"]>;
+    }
+    const targetDetails = new Map<string, TargetDetail>();
+    /** Where `project` can run with `model`, from the facts above. No I/O. */
+    function targetsFor(project: ProjectCandidate, model: ModelCandidate): TargetDetail {
+      const cacheKey = `${project.id}\u0000${model.providerId}`;
+      const cached = targetDetails.get(cacheKey);
+      if (cached !== undefined) return cached;
+
+      const usable = (environmentsByProject.get(project.id) ?? []).filter(
+        (provider) => provider.requires.projectless === project.isPersonal && isAutomatic(provider),
+      );
+      // The environments the user allowed, in their order. A projectless
+      // thread takes whichever projectless provider is installed. A project
+      // none of them can serve (not a git repository, say) still gets a
+      // plain checkout rather than no thread.
+      const chosen = project.isPersonal
+        ? usable
+        : scope.environmentIds.flatMap((id) => usable.filter((provider) => provider.id === id));
+      const fallback = usable.filter(
+        (provider) => provider.id === FALLBACK_ENVIRONMENT && !chosen.includes(provider),
+      );
+      let detail: TargetDetail = {
+        machines: [],
+        environments: [],
+        usedFallback: false,
+        inputs: new Map(),
+      };
+      for (const tier of [chosen, fallback]) {
+        const environmentsByMachine = new Map<string, string[]>();
+        for (const provider of tier) {
+          const anyMachine =
+            project.isPersonal && Object.keys(provider.machineAvailability).length === 0;
+          for (const entry of connected) {
+            if (!anyMachine && provider.machineAvailability[entry.id]?.status !== "available") {
+              continue;
+            }
+            environmentsByMachine.set(entry.id, [
+              ...(environmentsByMachine.get(entry.id) ?? []),
+              provider.id,
+            ]);
+          }
+        }
+        // A machine whose providers could not be read, or that does not list
+        // this one yet, counts as able; spawn has the final say.
+        const runnable = connected.filter(
+          (entry) =>
+            environmentsByMachine.has(entry.id) &&
+            (providersByHost.get(entry.id)?.get(model.providerId) ?? true),
+        );
+        if (runnable.length === 0) continue;
+
+        const offered = new Set(
+          runnable.flatMap((entry) => environmentsByMachine.get(entry.id) ?? []),
+        );
+        detail = {
+          usedFallback: tier === fallback,
+          inputs: new Map(
+            tier.map((provider) => [provider.id, provider.inputs === null ? null : {}] as const),
+          ),
+          machines: runnable.map((entry) =>
+            candidate(
+              entry,
+              statsByHost.get(entry.id) ?? null,
+              project.sources.find((source) => source.hostId === entry.id)?.path ?? null,
+              environmentsByMachine.get(entry.id) ?? [],
+            ),
+          ),
+          environments: tier
+            .filter((provider) => offered.has(provider.id))
+            .map((provider) => ({
+              id: provider.id,
+              name: provider.displayName,
+              description: provider.description ?? "",
+            })),
+        };
+        break;
+      }
+      targetDetails.set(cacheKey, detail);
+      return detail;
+    }
+
+    let requests = 0;
+    const routed = await route({
+      task: text,
+      instructions: {
+        general: config.generalInstructions,
+        projects: config.projectInstructions,
+        machines: config.machineInstructions,
+        models: config.modelInstructions,
+        environments: config.environmentInstructions,
+      },
+      projects: reachable,
+      models,
+      hostNames: new Map(hosts.map((entry) => [entry.id, entry.name] as const)),
+      reasoningLevels: scope.reasoningLevels,
+      ask: (batch) => {
+        const count = Object.keys(batch.questions).length;
+        return profiler.time(`jev.request${++requests} (${count} questions)`, () =>
+          askChoicesVia(routes, batch),
+        );
+      },
+      targetsFor,
+      reasoningFor(model): ReasoningCandidate[] {
+        const entry = catalogs
+          .get(model.providerId)
+          ?.models.find((candidate) => candidate.model === model.model);
+        return (entry?.supportedReasoningEfforts ?? []).map((effort) => ({
+          level: effort.reasoningEffort,
+          description: effort.description,
+        }));
+      },
+    });
+
+    const chosenTargets = targetsFor(routed.project.value, routed.model.value);
+    const usedFallbackEnvironment = chosenTargets.usedFallback;
+    const inputsByEnvironment = chosenTargets.inputs;
+
+    const decision: RouteDecision = usedFallbackEnvironment
+      ? { ...routed, environment: { ...routed.environment, source: "fallback" } }
+      : routed;
+
+    // A thread may not ask for more than its machine or provider grants, so
+    // take the most permissive mode at or below both the setting and the ceiling.
+    const machine = hosts.find((entry) => entry.id === decision.machine.value.id);
+    const providerModes = catalogs
+      .get(decision.model.value.providerId)
+      ?.providers.find((provider) => provider.id === decision.model.value.providerId)
+      ?.capabilities.permissionModes;
+    const limit = Math.min(
+      PERMISSION_MODES.indexOf(permissionMode),
+      PERMISSION_MODES.indexOf(machine?.maxPermissionMode ?? "full"),
+    );
+    permissionMode =
+      PERMISSION_MODES.filter(
+        (mode, rank) => rank <= limit && (providerModes === undefined || providerModes.includes(mode)),
+      ).at(-1) ?? permissionMode;
+
+    return {
+      decision,
+      profiler,
+      environmentInputs: inputsByEnvironment.get(decision.environment.value.id) ?? {},
+      permissionMode,
+    };
+  }
+
+  function summarize(routed: RoutedThread): DecisionSummary {
+    const { decision } = routed;
+    return {
+      project: { ...summarizePick(decision.project), id: decision.project.value.id },
+      machine: { ...summarizePick(decision.machine), id: decision.machine.value.id },
+      model: {
+        ...summarizePick(decision.model),
+        providerId: decision.model.value.providerId,
+        model: decision.model.value.model,
+      },
+      reasoning: summarizePick(decision.reasoning),
+      environment: { ...summarizePick(decision.environment), id: decision.environment.value.id },
+      latencyMs: routed.profiler.elapsed(),
+      timings: [...routed.profiler.spans],
+    };
+  }
+
+  function userFacing(error: unknown): Error {
+    if (error instanceof JevError || error instanceof RouteError) return error;
+    bb.log.error(`dispatch failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+    return new Error(messageOf(error));
+  }
+
+  type DispatchInput = z.infer<(typeof rpcContract)["dispatch"]["input"]>;
+  async function dispatch({
+    text,
+    mentions,
+    attachments,
+    attachmentProjectId,
+  }: DispatchInput): Promise<{ threadId: string; decision: DecisionSummary }> {
+    try {
+      const routed = await decide(text);
+      const summary = summarize(routed);
+      const projectId = summary.project.id;
+      if (
+        attachments.length > 0 &&
+        attachmentProjectId !== null &&
+        attachmentProjectId !== projectId
+      ) {
+        await routed.profiler.time("attachments.copy", () =>
+          bb.sdk.projects.attachments.copy({
+            projectId,
+            sourceProjectId: attachmentProjectId,
+            paths: attachments.map((attachment) => attachment.path),
+          }),
+        );
+      }
+      const thread = await routed.profiler.time("threads.spawn", () => bb.sdk.threads.spawn({
+        projectId,
+        providerId: summary.model.providerId,
+        model: summary.model.model,
+        reasoningLevel: routed.decision.reasoning.value,
+        permissionMode: routed.permissionMode,
+        environment: {
+          type: "provider",
+          environmentProviderId: summary.environment.id,
+          inputs: routed.environmentInputs,
+          machine: { type: "existing", hostId: summary.machine.id },
+        },
+        input: [
+          // Mention pills are forwarded as the composer saved them; spawn validates them.
+          { type: "text", text, mentions: mentions as TextInput["mentions"] },
+          ...attachments.map((attachment) =>
+            attachment.type === "localImage"
+              ? { type: "localImage" as const, path: attachment.path }
+              : { ...attachment, type: "localFile" as const },
+          ),
+        ],
+        pluginMetadata: { decision: { ...summary, timings: [] } },
+      }));
+      bb.log.info(
+        `dispatched ${thread.id}: ${summary.project.label} · ${summary.machine.label} · ${summary.model.label} · ${summary.reasoning.label} · ${summary.environment.label} (decided in ${summary.latencyMs}ms, ${routed.profiler.spans
+            .filter((span) => !span.name.startsWith("facts.") && span.endMs - span.startMs >= 20)
+            .map((span) => `${span.name} ${span.endMs - span.startMs}ms`)
+            .join(", ")})`,
+      );
+      // Summarized again so the timings cover the spawn as well.
+      return { threadId: thread.id, decision: summarize(routed) };
+    } catch (error) {
+      throw userFacing(error);
+    }
+  }
+
+  bb.rpc.register(rpcContract, {
+    status: async () => ({
+      hasApiKey: (await jevRoutes()).length > 0,
+      rotationSize: (await readRotation()).length,
+    }),
+    warm: async () => {
+      const routes = await jevRoutes();
+      if (routes.length === 0) return { warmed: false };
+      const [{ connected }, projects] = await Promise.all([
+        loadMachines(),
+        bb.sdk.projects.list({ includePersonal: true }),
+        warmRoutes(routes),
+      ]);
+      // Refreshed, not just read, so a dispatch in the next moments finds them fresh.
+      await Promise.allSettled([
+        ...connected.flatMap((entry) => [
+          statsCache.refresh(entry.id),
+          hostProvidersCache.refresh(entry.id),
+        ]),
+        ...projects.map((project) => environmentsCache.refresh(project.id)),
+      ]);
+      return { warmed: true };
+    },
+    rotation_get: async () => ({ entries: await readRotation() }),
+    rotation_set: async ({ entries }) => {
+      await bb.storage.kv.set(ROTATION_KEY, entries);
+      return { entries };
+    },
+    scope_get: async () => {
+      const [scope, projects, environments, hosts] = await Promise.all([
+        readScope(),
+        bb.sdk.projects.list({ includePersonal: true }),
+        bb.sdk.environments.listProviders(),
+        bb.sdk.hosts.list(),
+      ]);
+      const hostNames = new Map(hosts.map((entry) => [entry.id, entry.name] as const));
+      return {
+        scope,
+        projects: projects.map((project) => {
+          const source = project.sources.find((entry) => entry.isDefault) ?? project.sources[0];
+          return project.kind === "personal"
+            ? { id: project.id, name: "No project", detail: "Threads that belong to no repository" }
+            : {
+                id: project.id,
+                name: project.name,
+                detail:
+                  source === undefined
+                    ? ""
+                    : `${source.path} on ${hostNames.get(source.hostId) ?? "an offline machine"}`,
+              };
+        }),
+        environments: environments
+          .filter((provider) => !provider.requires.projectless && isAutomatic(provider))
+          .map((provider) => ({
+            id: provider.id,
+            name: provider.displayName,
+            detail: provider.description ?? "",
+          })),
+      };
+    },
+    scope_set: async ({ scope }) => {
+      await bb.storage.kv.set(SCOPE_KEY, { ...(await readScope()), ...scope });
+      return { scope: await readScope() };
+    },
+    rotation_seed: async () => {
+      const { providers } = await bb.sdk.providers.models();
+      const provider = providers.find((entry) => entry.available);
+      if (provider === undefined) return { seed: null };
+      const { models } = await bb.sdk.providers.models({ providerId: provider.id });
+      const model = models.find((entry) => entry.isDefault) ?? models[0];
+      if (model === undefined) return { seed: null };
+      return {
+        seed: {
+          providerId: provider.id,
+          model: model.model,
+          note: "",
+          reasoningLevel: model.defaultReasoningEffort,
+        },
+      };
+    },
+    preview: async ({ text }) => {
+      try {
+        return { decision: summarize(await decide(text)) };
+      } catch (error) {
+        throw userFacing(error);
+      }
+    },
+    dispatch,
+  });
+
+  const HISTORY_MAX_THREADS = 600;
+  /**
+   * Plugins whose threads the user starts from a composer, choosing the model
+   * themselves. Any other plugin's threads (review bots, automations, this
+   * plugin's own dispatches) were configured once, not chosen per task.
+   */
+  const COMPOSER_PLUGINS = ["quick-compose", "quick-chat"];
+  const HISTORY_PROMPT_CHARS = 400;
+  const firstTurnSchema = z.object({
+    initiator: z.string().optional(),
+    input: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional(),
+    execution: z
+      .object({ model: z.string().optional(), reasoningLevel: z.string().optional() })
+      .optional(),
+  });
+
+  async function inBatches<T, R>(items: readonly T[], size: number, work: (item: T) => Promise<R>) {
+    const results: R[] = [];
+    for (let at = 0; at < items.length; at += size) {
+      results.push(...(await Promise.all(items.slice(at, at + size).map(work))));
+    }
+    return results;
+  }
+
+  /**
+   * The model and effort the user chose for each thread they started, newest
+   * first. Threads started by plugins or automations are left out, this
+   * plugin's included: those choices were not the user's.
+   */
+  async function loadHistory(days: number, extraOrigins: readonly string[]): Promise<HistoryRow[]> {
+    const userOrigins = new Set([...COMPOSER_PLUGINS, ...extraOrigins]);
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const [projects, threads] = await Promise.all([
+      bb.sdk.projects.list({ includePersonal: true }),
+      (async () => {
+        const all: Awaited<ReturnType<typeof bb.sdk.threads.list>> = [];
+        for (let offset = 0; ; offset += 500) {
+          const page = await bb.sdk.threads.list({ limit: 500, offset });
+          all.push(...page);
+          if (page.length < 500) return all;
+        }
+      })(),
+    ]);
+    const projectNames = new Map(
+      projects.map((project) => [project.id, project.kind === "personal" ? "No project" : project.name]),
+    );
+    const started = threads
+      .filter(
+        (thread) =>
+          thread.createdAt >= cutoff &&
+          thread.parentThreadId === null &&
+          thread.visibility === "visible" &&
+          thread.deletedAt === null &&
+          (thread.originPluginId === null || userOrigins.has(thread.originPluginId ?? "")),
+      )
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, HISTORY_MAX_THREADS);
+
+    const rows = await inBatches(started, 16, async (thread): Promise<HistoryRow | null> => {
+      try {
+        const [first] = await bb.sdk.threads.events.list({
+          threadId: thread.id,
+          limit: "1",
+          order: "asc",
+          types: ["client/turn/requested"],
+        });
+        const turn = firstTurnSchema.safeParse(first?.data);
+        if (!turn.success || turn.data.initiator !== "user") return null;
+        const { model, reasoningLevel } = turn.data.execution ?? {};
+        if (model === undefined || reasoningLevel === undefined) return null;
+        return {
+          threadId: thread.id,
+          createdAt: thread.createdAt,
+          project: projectNames.get(thread.projectId) ?? thread.projectId,
+          providerId: thread.providerId,
+          model,
+          effort: reasoningLevel,
+          prompt: (turn.data.input ?? [])
+            .map((part) => (part.type === "text" ? (part.text ?? "") : ""))
+            .join(" ")
+            .replace(/\s+/gu, " ")
+            .trim(),
+        };
+      } catch {
+        return null;
+      }
+    });
+    return rows.filter((entry) => entry !== null);
+  }
+
+  /**
+   * Ask Jev, with the current rotation and instructions, which model and
+   * effort it would pick for each past prompt. Only those two questions are
+   * asked: the world is reduced to one project on one machine.
+   */
+  async function backtest(rows: readonly HistoryRow[]): Promise<BacktestResult[]> {
+    const config = await settings.get();
+    const routes = await jevRoutes();
+    if (routes.length === 0) throw new RouteError("Add a Jev API key in Auto Dispatch settings first.");
+    const [scope, { models, catalogs }] = await Promise.all([
+      readScope(),
+      readRotation().then(loadModels),
+    ]);
+    await warmRoutes(routes);
+    const project: ProjectCandidate = {
+      id: "backtest",
+      name: "backtest",
+      isPersonal: false,
+      gitRemoteUrl: null,
+      sources: [],
+      recentThreadTitles: [],
+    };
+    const machine: MachineCandidate = {
+      id: "backtest",
+      name: "backtest",
+      isServer: true,
+      stats: null,
+      runningThreads: 0,
+      projectPath: null,
+      environmentIds: ["backtest"],
+    };
+    const results = await inBatches(rows, 8, async (row): Promise<BacktestResult | null> => {
+      try {
+        const decision = await route({
+          task: row.prompt,
+          instructions: {
+            general: config.generalInstructions,
+            models: config.modelInstructions,
+            projects: "",
+            machines: "",
+            environments: "",
+          },
+          projects: [project],
+          models,
+          hostNames: new Map(),
+          reasoningLevels: scope.reasoningLevels,
+          ask: (batch) => askChoicesVia(routes, batch),
+          targetsFor: () => ({
+            machines: [machine],
+            environments: [{ id: "backtest", name: "backtest", description: "" }],
+          }),
+          reasoningFor: (model) =>
+            (
+              catalogs.get(model.providerId)?.models.find((entry) => entry.model === model.model)
+                ?.supportedReasoningEfforts ?? []
+            ).map((effort) => ({ level: effort.reasoningEffort, description: effort.description })),
+        });
+        return { row, model: decision.model.value.model, effort: decision.reasoning.value };
+      } catch (error) {
+        bb.log.warn(`backtest skipped ${row.threadId}: ${messageOf(error)}`);
+        return null;
+      }
+    });
+    return results.filter((entry) => entry !== null);
+  }
+
+  const VALUE_FLAGS = new Set(["--days", "--map", "--exclude", "--limit", "--include-origin"]);
+  function parseArgs(argv: readonly string[]) {
+    const values = new Map<string, string[]>();
+    const switches = new Set<string>();
+    const rest: string[] = [];
+    for (let at = 0; at < argv.length; at++) {
+      const arg = argv[at] ?? "";
+      if (VALUE_FLAGS.has(arg)) {
+        const value = argv[++at];
+        if (value === undefined) throw new Error(`${arg} needs a value.`);
+        values.set(arg, [...(values.get(arg) ?? []), value]);
+      } else if (arg.startsWith("--")) switches.add(arg);
+      else rest.push(arg);
+    }
+    return { values, switches, rest };
+  }
+
+  const usage = [
+    "Usage:",
+    "  bb auto-dispatch route <prompt> [--json] [--profile]   Show where Jev would send a prompt; starts nothing",
+    "  bb auto-dispatch spawn <prompt> [--json]   Route a prompt and start the thread",
+    "  bb auto-dispatch machines [--json]         Show what Jev is told about each connected machine",
+    "  bb auto-dispatch rotation get [--json]     Show the model rotation",
+    "  bb auto-dispatch rotation set <json>       Replace it: [{providerId, model, note, reasoningLevel}, ...]",
+    "  bb auto-dispatch history [--days 14] [--include-origin <plugin-id>]... [--json]",
+    "                                             The model and effort you chose for each thread you started",
+    "  bb auto-dispatch backtest [--days 14] [--map <regex>=<model>]... [--exclude <regex>] [--limit 250] [--json]",
+    "                                             Route your past prompts through Jev and score agreement with what you chose",
+  ].join("\n");
+  bb.cli.register({
+    name: "auto-dispatch",
+    summary: "Route prompts to a project, machine, model, and reasoning level with Jev",
+    commands: [
+      {
+        name: "route",
+        summary: "Show where Jev would send a prompt, without starting a thread",
+        usage: "bb auto-dispatch route <prompt> [--json]",
+      },
+      {
+        name: "spawn",
+        summary: "Route a prompt with Jev and start the thread there",
+        usage: "bb auto-dispatch spawn <prompt> [--json]",
+      },
+      {
+        name: "machines",
+        summary: "Show what Jev is told about each connected machine",
+        usage: "bb auto-dispatch machines [--json]",
+      },
+      {
+        name: "rotation",
+        summary: "Show or replace the model rotation",
+        usage: "bb auto-dispatch rotation get [--json] | rotation set <json>",
+      },
+      {
+        name: "history",
+        summary: "List the model and effort the user chose for each thread they started",
+        usage: "bb auto-dispatch history [--days 14] [--json]",
+      },
+      {
+        name: "backtest",
+        summary: "Route past prompts through Jev and score agreement with the user's own choices",
+        usage:
+          "bb auto-dispatch backtest [--days 14] [--map <regex>=<model>]... [--exclude <regex>] [--limit 250] [--json]",
+      },
+    ],
+    async run(argv) {
+      let parsedArgs: ReturnType<typeof parseArgs>;
+      try {
+        parsedArgs = parseArgs(argv);
+      } catch (error) {
+        return { exitCode: 1, stderr: messageOf(error) };
+      }
+      const { values, switches } = parsedArgs;
+      const json = switches.has("--json");
+      const profile = switches.has("--profile");
+      const [command, ...rest] = parsedArgs.rest;
+      const days = Math.min(Math.max(Number(values.get("--days")?.[0] ?? 14) || 14, 1), 90);
+      const timeline = (decision: DecisionSummary) =>
+        profile ? `\n\n${formatSpans(decision.timings)}` : "";
+      if (command === undefined || command === "help" || command === "--help") {
+        return { exitCode: 0, stdout: usage };
+      }
+      if (command === "rotation") {
+        const [action, ...payload] = rest;
+        if (action === "set") {
+          try {
+            const raw: unknown = JSON.parse(payload.join(" "));
+            const entries = rotationSchema.parse(
+              Array.isArray(raw) ? raw : (raw as { entries?: unknown }).entries,
+            );
+            await bb.storage.kv.set(ROTATION_KEY, entries);
+            return { exitCode: 0, stdout: `Rotation set to ${entries.length} model(s).` };
+          } catch (error) {
+            return { exitCode: 1, stderr: `Could not read the rotation: ${messageOf(error)}` };
+          }
+        }
+        if (action !== undefined && action !== "get") return { exitCode: 1, stderr: usage };
+        const entries = await readRotation();
+        return {
+          exitCode: 0,
+          stdout: json
+            ? JSON.stringify(entries)
+            : entries.length === 0
+              ? "The rotation is empty."
+              : entries
+                  .map((entry) => `${entry.providerId} / ${entry.model} (fallback effort ${entry.reasoningLevel})\n  ${entry.note || "(no note)"}`)
+                  .join("\n"),
+        };
+      }
+      if (command === "history") {
+        const rows = await loadHistory(days, values.get("--include-origin") ?? []);
+        const counts = tally(rows);
+        if (json) {
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              days,
+              threads: rows.length,
+              counts,
+              rows: rows.map((row) => ({ ...row, prompt: row.prompt.slice(0, HISTORY_PROMPT_CHARS) })),
+            }),
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: [
+            `${rows.length} threads you started in the last ${days} days:`,
+            ...counts.map(
+              (entry) =>
+                `  ${entry.model.padEnd(28)} ${String(entry.total).padStart(4)}   ${Object.entries(entry.efforts)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([effort, count]) => `${effort} ${count}`)
+                  .join(", ")}`,
+            ),
+            "Add --json for every thread's prompt, model, and effort.",
+          ].join("\n"),
+        };
+      }
+      if (command === "backtest") {
+        try {
+          const rotation = await readRotation();
+          if (rotation.length === 0) throw new RouteError("The rotation is empty; there is nothing to test.");
+          const limit = Math.min(Math.max(Number(values.get("--limit")?.[0] ?? 250) || 250, 1), 500);
+          const excludeText = values.get("--exclude")?.[0];
+          const selection = backtestRows(await loadHistory(days, values.get("--include-origin") ?? []), {
+            mappings: (values.get("--map") ?? []).map(parseMapping),
+            exclude: excludeText === undefined ? null : new RegExp(excludeText, "iu"),
+            rotation: new Set(rotation.map((entry) => entry.model)),
+          });
+          const rows = selection.rows.slice(0, limit);
+          const results = await backtest(rows);
+          const scope = await readScope();
+          const scored = score(results, new Set(scope.reasoningLevels));
+          const misses = results
+            .filter((result) => result.model !== result.row.model || result.effort !== result.row.effort)
+            .slice(0, 80)
+            .map((result) => ({
+              you: `${result.row.model} ${result.row.effort}`,
+              jev: `${result.model} ${result.effort}`,
+              prompt: result.row.prompt.slice(0, 200),
+            }));
+          const report = { days, skipped: selection.skipped, failed: rows.length - results.length, ...scored, misses };
+          if (json) return { exitCode: 0, stdout: JSON.stringify(report) };
+          return {
+            exitCode: 0,
+            stdout: [
+              `Backtested ${scored.prompts} past prompts from the last ${days} days.`,
+              `Model:  agrees ${scored.model.agreementPercent}%   (always picking ${scored.model.mostCommon}: ${scored.model.alwaysMostCommonPercent}%)`,
+              `Effort: agrees ${scored.effort.agreementPercent}%, within one level ${scored.effort.withinOneLevelPercent}%   (always picking ${scored.effort.mostCommon}: ${scored.effort.alwaysMostCommonPercent}%)`,
+              `Left out: ${Object.entries(selection.skipped).map(([why, count]) => `${count} ${why}`).join(", ")}.`,
+              "Add --json for the confusion tables and every disagreement.",
+            ].join("\n"),
+          };
+        } catch (error) {
+          return { exitCode: 1, stderr: messageOf(error) };
+        }
+      }
+      if (command === "machines") {
+        const { connected, candidate } = await loadMachines();
+        const machines = await Promise.all(
+          connected.map(async (entry) => candidate(entry, await machineStats(entry.id), null, [])),
+        );
+        const described = machines.map((machine) => ({
+          id: machine.id,
+          name: machine.name,
+          description: describeMachine(machine),
+          stats: machine.stats,
+        }));
+        return {
+          exitCode: 0,
+          stdout: json
+            ? JSON.stringify(described)
+            : described.length === 0
+              ? "No machine is connected."
+              : described.map((machine) => `${machine.name}\n  ${machine.description}`).join("\n"),
+        };
+      }
+      if (command !== "route" && command !== "spawn") return { exitCode: 1, stderr: usage };
+      const prompt = promptSchema.safeParse(rest.join(" "));
+      if (!prompt.success) return { exitCode: 1, stderr: usage };
+      try {
+        if (command === "route") {
+          const decision = summarize(await decide(prompt.data));
+          return {
+            exitCode: 0,
+            stdout: json ? JSON.stringify(decision) : formatDecision(decision) + timeline(decision),
+          };
+        }
+        const parsed = await dispatch({
+          text: prompt.data,
+          mentions: [],
+          attachments: [],
+          attachmentProjectId: null,
+        });
+        return {
+          exitCode: 0,
+          stdout: json
+            ? JSON.stringify(parsed)
+            : `Started ${parsed.threadId}\n${formatDecision(parsed.decision)}${timeline(parsed.decision)}`,
+        };
+      } catch (error) {
+        return { exitCode: 1, stderr: messageOf(error) };
+      }
+    },
+  });
+}

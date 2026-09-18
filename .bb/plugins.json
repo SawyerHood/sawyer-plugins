@@ -3,6 +3,7 @@
   "schemaVersion": 1,
   "name": "sawyer-plugins",
   "plugins": [
+    { "name": "auto-dispatch", "source": "./plugins/auto-dispatch" },
     { "name": "better-notes", "source": "./plugins/better-notes" },
     { "name": "btrfs-cow", "source": "./plugins/btrfs-cow" },
     { "name": "cascade", "source": "./plugins/cascade" },

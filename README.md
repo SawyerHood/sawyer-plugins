@@ -4,6 +4,7 @@ Sawyer Hood's [BB](https://getbb.app) plugins, in one repository. Every plugin l
 
 | Plugin | Directory | What it does |
 | --- | --- | --- |
+| Auto Dispatch | [`plugins/auto-dispatch`](plugins/auto-dispatch) | An Auto toggle on the new-thread composer: Jev picks the project, machine, model, reasoning level, and environment. |
 | Better Notes | [`plugins/better-notes`](plugins/better-notes) | An editable fork of BB’s built-in document and notes library. |
 | Cascade | [`plugins/cascade`](plugins/cascade) | A scrollable, tiled layout for active BB threads. |
 | Compact Nav | [`plugins/compact-nav`](plugins/compact-nav) | Borderless sidebar icon buttons with native ordering and visibility controls. |

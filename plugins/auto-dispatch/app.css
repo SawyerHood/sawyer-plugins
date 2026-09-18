@@ -1,0 +1,42 @@
+/* Auto mode: Jev chooses these, so the pickers only get in the way. The banner
+   sets data-auto-dispatch on the New thread composer's root while it is on. */
+
+/* The row beneath the prompt: project, environment and machine, branch, and
+   permission mode. */
+[data-app-composer][data-auto-dispatch="on"] > div:has([data-promptbox-project-control]) {
+  display: none;
+}
+
+/* The provider, model, and reasoning picker inside the prompt box. */
+[data-app-composer][data-auto-dispatch="on"]
+  form[data-promptbox]
+  button[aria-label^="Provider, model and reasoning"] {
+  display: none;
+}
+
+/* BB greys out its send button while its own (now hidden) pickers are
+   unresolved; Auto sends regardless. */
+[data-app-composer][data-auto-dispatch="on"] [data-promptbox-submit-disabled-reason] > button {
+  opacity: 1;
+}
+
+.auto-dispatch-routing {
+  animation: auto-dispatch-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes auto-dispatch-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auto-dispatch-routing {
+    animation: none;
+    opacity: 0.6;
+  }
+}
