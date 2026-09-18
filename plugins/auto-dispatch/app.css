@@ -1,42 +1,133 @@
-/* Auto mode: Jev chooses these, so the pickers only get in the way. The banner
-   sets data-auto-dispatch on the New thread composer's root while it is on. */
-
-/* The row beneath the prompt: project, environment and machine, branch, and
-   permission mode. */
-[data-app-composer][data-auto-dispatch="on"] > div:has([data-promptbox-project-control]) {
-  display: none;
+/* While Auto is still deciding where the draft should run, lib/composer-dom.ts
+   holds the send, and this makes the button look held. */
+[data-app-composer][data-auto-dispatch="pending"] button[type="submit"][data-promptbox-submit-action] {
+  cursor: progress;
+  opacity: 0.45;
 }
 
-/* The provider, model, and reasoning picker inside the prompt box. */
-[data-app-composer][data-auto-dispatch="on"]
-  form[data-promptbox]
-  button[aria-label^="Provider, model and reasoning"] {
-  display: none;
+/* The Auto wand. Its stick and its two sparkles are drawn as separate parts so
+   each can move. Off, it is still. On, a slow rainbow drifts across the
+   sparkles and nothing else moves. While Jev decides, the sparkles flicker in
+   turn. Clicking it flicks the stick. Each time Auto moves the composer's
+   pickers, and when it is switched on, the wand casts: the sparkles pop and a
+   few motes come off the tip. */
+.auto-dispatch-wand {
+  overflow: visible;
 }
 
-/* BB greys out its send button while its own (now hidden) pickers are
-   unresolved; Auto sends regardless. */
-[data-app-composer][data-auto-dispatch="on"] [data-promptbox-submit-disabled-reason] > button {
-  opacity: 1;
+.auto-dispatch-wand .stick {
+  /* The end of the handle, which a flick of the wrist turns about. */
+  transform-box: view-box;
+  transform-origin: 85.4% 89.6%;
 }
 
-.auto-dispatch-routing {
-  animation: auto-dispatch-pulse 1.2s ease-in-out infinite;
+/* Only a click flicks it: Auto moving the pickers mid-sentence should not. */
+.auto-dispatch-wand[data-flick] .stick {
+  animation: auto-dispatch-flick 620ms cubic-bezier(0.3, 1.4, 0.5, 1);
 }
 
-@keyframes auto-dispatch-pulse {
+.auto-dispatch-wand .sparkle,
+.auto-dispatch-wand .mote {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.auto-dispatch-wand .mote {
+  opacity: 0;
+}
+
+.auto-dispatch-wand[data-cast] .sparkle {
+  animation: auto-dispatch-pop 620ms cubic-bezier(0.3, 1.6, 0.5, 1) backwards;
+}
+
+.auto-dispatch-wand[data-cast] .mote {
+  animation: auto-dispatch-mote 700ms ease-out;
+}
+
+/* After the cast rule so that, while both apply, the wand keeps deciding. */
+.auto-dispatch-wand[data-state="pending"] .sparkle {
+  animation: auto-dispatch-flicker 900ms ease-in-out infinite;
+}
+
+/* The second of each pair runs behind the first. */
+.auto-dispatch-wand[data-cast] .sparkle + .sparkle {
+  animation-delay: 90ms;
+}
+
+.auto-dispatch-wand[data-state="pending"] .sparkle + .sparkle {
+  animation-delay: -450ms;
+}
+
+.auto-dispatch-wand[data-cast] .mote + .mote {
+  animation-delay: 60ms;
+}
+
+.auto-dispatch-wand[data-cast] .mote + .mote + .mote {
+  animation-delay: 120ms;
+}
+
+@keyframes auto-dispatch-flick {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(14deg);
+  }
+  55% {
+    transform: rotate(-16deg);
+  }
+}
+
+@keyframes auto-dispatch-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.4);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes auto-dispatch-mote {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(1);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) scale(0.3);
+  }
+}
+
+@keyframes auto-dispatch-flicker {
   0%,
   100% {
     opacity: 1;
+    transform: scale(1);
   }
   50% {
     opacity: 0.45;
+    transform: scale(0.6);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .auto-dispatch-routing {
-    animation: none;
+  .auto-dispatch-wand .stick,
+  .auto-dispatch-wand .sparkle,
+  .auto-dispatch-wand .mote {
+    animation: none !important;
+  }
+
+  .auto-dispatch-wand[data-state="pending"] {
     opacity: 0.6;
   }
 }

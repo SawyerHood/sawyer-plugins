@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Auto Dispatch",
-    "description": "Flip on Auto above the new-thread composer and Jev picks the project, machine, model, reasoning level, and environment for each prompt, using your Vercel AI Gateway or OpenRouter key.",
+    "description": "Switch on Auto in the new-thread composer and Jev picks the project, machine, model, reasoning level, and environment as you type, using your Vercel AI Gateway or OpenRouter key.",
     "branding": {
       "icon": "./assets/icon.svg"
     },

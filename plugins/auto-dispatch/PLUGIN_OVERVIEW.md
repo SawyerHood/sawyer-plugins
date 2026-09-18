@@ -1,10 +1,10 @@
 ## Let Jev decide where a thread runs
 
-Auto Dispatch adds an **Auto** toggle above the new-thread composer. Turn it on and the project, machine, and model pickers disappear. Type a prompt and press Enter, and [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), TypeSafe's fast classifier model, picks the project, the machine, the model, the reasoning level, and the environment. The thread starts there about a second later.
+Auto Dispatch adds **Auto**, a wand button beside the send button in the new-thread composer. Switch it on and start typing: [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), TypeSafe's fast classifier model, picks the project, the machine, the model, the reasoning level, and the environment, and the composer's pickers move to its answer as you type.
 
-## Or let it fill in the form
+## You see every choice before it runs
 
-Would rather check its work? Leave Auto off and press **Auto-fill**, the wand button beside the send button. Jev makes the same choices and sets the composer's project, machine, environment, model, and reasoning pickers to them without sending. Change anything you disagree with, then send as usual.
+Nothing is hidden and nothing is sent for you. The send button waits, usually a fraction of a second, until the pickers match what you wrote, so what runs is what you were shown. Change any picker you disagree with and it stays put. Switch Auto off and the composer is exactly as it was.
 
 ## Tell it how you work
 
@@ -24,4 +24,4 @@ Ask an agent to tune Auto Dispatch and the bundled skill reads which model and e
 
 ## Requirements
 
-Requires BB 0.43 or later, Plugin SDK 0.4.103 or later, and an API key for a gateway that serves Jev: the [Vercel AI Gateway](https://vercel.com/ai-gateway) or [OpenRouter](https://openrouter.ai/typesafe/jev-1.13). Each dispatch sends your prompt, your instructions, and the names, folders, and recent thread titles of your projects, plus machine names and load, to TypeSafe through that gateway. A dispatch costs a small fraction of a cent. Vercel's free tier allows only about 10 Jev calls per 5 minutes; any Gateway credit lifts that.
+Requires BB 0.43 or later, Plugin SDK 0.4.103 or later, and an API key for a gateway that serves Jev: the [Vercel AI Gateway](https://vercel.com/ai-gateway) or [OpenRouter](https://openrouter.ai/typesafe/jev-1.13). With Auto on, your prompt is sent as you type, not only when you send it. Each decision sends your prompt so far, your instructions, and the names, folders, and recent thread titles of your projects, plus machine names and load, to TypeSafe through that gateway. A decision costs a small fraction of a cent, and a prompt takes ten or so. Vercel's free tier allows only about 10 Jev calls per 5 minutes, which Auto uses up within one prompt; any Gateway credit lifts that.

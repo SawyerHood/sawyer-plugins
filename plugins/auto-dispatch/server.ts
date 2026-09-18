@@ -130,21 +130,6 @@ const decisionSchema = z
   .strict();
 export type DecisionSummary = z.infer<typeof decisionSchema>;
 
-// The composer's own draft shapes. Mentions and attachments are forwarded to
-// `threads.spawn`, which validates them in full.
-const attachmentSchema = z
-  .object({
-    type: z.enum(["localImage", "localFile"]),
-    path: z.string().min(1),
-    name: z.string().optional(),
-    mimeType: z.string().optional(),
-    sizeBytes: z.number().optional(),
-  })
-  .strict();
-const mentionSchema = z
-  .object({ start: z.number(), end: z.number(), resource: z.unknown() })
-  .strict();
-
 const promptSchema = z.string().trim().min(1).max(200_000);
 
 export const rpcContract = defineRpcContract({
@@ -203,25 +188,10 @@ export const rpcContract = defineRpcContract({
     input: z.object({ text: promptSchema }).strict(),
     output: z.object({ decision: decisionSchema }).strict(),
   },
-  dispatch: {
-    input: z
-      .object({
-        text: promptSchema,
-        mentions: z.array(mentionSchema).max(200).default([]),
-        attachments: z.array(attachmentSchema).max(50).default([]),
-        /** The project the composer uploaded those attachments into. */
-        attachmentProjectId: z.string().nullable().default(null),
-      })
-      .strict(),
-    output: z.object({ threadId: z.string(), decision: decisionSchema }).strict(),
-  },
 });
 
 /** What the Projects and Environments settings sections render. */
 export type ScopeOptions = z.infer<(typeof rpcContract)["scope_get"]["output"]>;
-
-type SpawnInput = NonNullable<Parameters<BbPluginApi["sdk"]["threads"]["spawn"]>[0]["input"]>;
-type TextInput = Extract<SpawnInput[number], { type: "text" }>;
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -357,7 +327,7 @@ export default async function plugin(bb: BbPluginApi) {
       type: "select",
       label: "Permission mode",
       description:
-        "Permission mode for auto-dispatched threads. Lowered automatically where a machine or provider allows less.",
+        "Permission mode for threads started with `bb auto-dispatch spawn`. Lowered automatically where a machine or provider allows less. In the composer, the permission picker is yours.",
       options: [...PERMISSION_MODES],
       default: "auto",
     },
@@ -814,30 +784,12 @@ export default async function plugin(bb: BbPluginApi) {
     return new Error(messageOf(error));
   }
 
-  type DispatchInput = z.infer<(typeof rpcContract)["dispatch"]["input"]>;
-  async function dispatch({
-    text,
-    mentions,
-    attachments,
-    attachmentProjectId,
-  }: DispatchInput): Promise<{ threadId: string; decision: DecisionSummary }> {
+  /** Route `text` and start the thread there. What `bb auto-dispatch spawn` runs. */
+  async function dispatch(text: string): Promise<{ threadId: string; decision: DecisionSummary }> {
     try {
       const routed = await decide(text);
       const summary = summarize(routed);
       const projectId = summary.project.id;
-      if (
-        attachments.length > 0 &&
-        attachmentProjectId !== null &&
-        attachmentProjectId !== projectId
-      ) {
-        await routed.profiler.time("attachments.copy", () =>
-          bb.sdk.projects.attachments.copy({
-            projectId,
-            sourceProjectId: attachmentProjectId,
-            paths: attachments.map((attachment) => attachment.path),
-          }),
-        );
-      }
       const thread = await routed.profiler.time("threads.spawn", () => bb.sdk.threads.spawn({
         projectId,
         providerId: summary.model.providerId,
@@ -850,15 +802,7 @@ export default async function plugin(bb: BbPluginApi) {
           inputs: routed.environmentInputs,
           machine: { type: "existing", hostId: summary.machine.id },
         },
-        input: [
-          // Mention pills are forwarded as the composer saved them; spawn validates them.
-          { type: "text", text, mentions: mentions as TextInput["mentions"] },
-          ...attachments.map((attachment) =>
-            attachment.type === "localImage"
-              ? { type: "localImage" as const, path: attachment.path }
-              : { ...attachment, type: "localFile" as const },
-          ),
-        ],
+        input: [{ type: "text", text, mentions: [] }],
         pluginMetadata: { decision: { ...summary, timings: [] } },
       }));
       bb.log.info(
@@ -961,7 +905,6 @@ export default async function plugin(bb: BbPluginApi) {
         throw userFacing(error);
       }
     },
-    dispatch,
   });
 
   const HISTORY_MAX_THREADS = 600;
@@ -1328,12 +1271,7 @@ export default async function plugin(bb: BbPluginApi) {
             stdout: json ? JSON.stringify(decision) : formatDecision(decision) + timeline(decision),
           };
         }
-        const parsed = await dispatch({
-          text: prompt.data,
-          mentions: [],
-          attachments: [],
-          attachmentProjectId: null,
-        });
+        const parsed = await dispatch(prompt.data);
         return {
           exitCode: 0,
           stdout: json

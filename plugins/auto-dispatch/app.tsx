@@ -1,23 +1,21 @@
-// Auto Dispatch frontend: the Auto toggle above the New thread composer, the
-// Auto-fill button inside it, and the plugin's settings sections: which
-// projects and environments Auto may choose between, the model rotation, and a
-// routing test.
+// Auto Dispatch frontend: the Auto toggle in the New thread composer, and the
+// plugin's settings sections: which projects and environments Auto may choose
+// between, the model rotation, and a routing test.
 import {
+  type CSSProperties,
+  createElement,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { WandSparklesIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { toast } from "sonner";
 import {
   definePluginApp,
   experimental_ProviderModelPicker as ProviderModelPicker,
-  UrlLink,
-  useBbNavigate,
   useComposer,
   useComposerView,
   useRpc,
@@ -25,9 +23,10 @@ import {
 import type { DecisionSummary, rpcContract, ScopeOptions } from "./server";
 import type { RotationEntry } from "./lib/router";
 import { autoMode } from "@/lib/auto-mode";
-import { AUTO_ATTRIBUTE, interceptSubmit, watchRootComposer } from "@/lib/composer-dom";
-import { buildDispatchPayload, parseStoredDraft, ROOT_DRAFT_STORAGE_KEY } from "@/lib/draft";
-import { describeFill, selectionFor } from "@/lib/fill";
+import { findComposer } from "@/lib/composer-dom";
+import { selectionFor } from "@/lib/fill";
+import type { LiveFillSnapshot } from "@/lib/live-fill";
+import { acquireSession, releaseSession, type Session } from "@/lib/session";
 import { REASONING_LEVELS, type ReasoningLevel } from "@/lib/reasoning";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -43,10 +42,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import "./app.css";
 
-const SETTINGS_PATH = "/settings/plugins/auto-dispatch";
 /** The server keeps its connection to Jev hot for a few minutes after each warm. */
 const WARM_AT_MOST_EVERY_MS = 20_000;
-const ROUTING_EFFECT = { className: "auto-dispatch-routing" };
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -56,245 +53,252 @@ function useAutoMode(): boolean {
   return useSyncExternalStore(autoMode.subscribe, autoMode.get, () => false);
 }
 
-function decisionLine(decision: DecisionSummary): string {
-  return [
-    decision.project.label,
-    decision.machine.label,
-    decision.model.label,
-    decision.reasoning.label,
-    decision.environment.label,
-  ].join(" · ");
+type WandState = "off" | "on" | "pending" | "error";
+
+// The icon draws the stick first and then its two sparkles. They are rendered
+// as separate parts here so that app.css can move each on its own.
+const [WAND_STICK, ...WAND_SPARKLES] = WandSparklesIcon;
+/** The tip of the wand, and where the motes that come off it fly to, in the icon's 24-unit box. */
+const WAND_TIP = { x: 10, y: 11 };
+const WAND_MOTES = [
+  { dx: -6.5, dy: -1.5 },
+  { dx: -5, dy: -5.5 },
+  { dx: -1.5, dy: -7 },
+];
+/** Evenly spaced and equally bright, ending where it began so the sweep has no seam. */
+const RAINBOW_HUES = [0, 60, 120, 180, 240, 300, 360];
+
+/** One trip of the rainbow across the sparkles. Slow enough to be noticed only in passing. */
+const RAINBOW_DRIFT = "24s";
+
+const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
+function subscribeToReducedMotion(listener: () => void): () => void {
+  const query = window.matchMedia(REDUCED_MOTION);
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
 }
-
-/**
- * Auto-fill: ask Jev where the draft should run and set the composer's pickers
- * to the answer, without sending, so the choices can be changed first.
- */
-function useAutoFill() {
-  const composer = useComposer();
-  const rpc = useRpc<typeof rpcContract>();
-  const [filling, setFilling] = useState(false);
-  const latest = useRef(composer);
-  latest.current = composer;
-  const inFlight = useRef(false);
-
-  const warm = useCallback(() => {
-    rpc.call("warm").catch(() => {});
-  }, [rpc]);
-
-  const fill = useCallback(async () => {
-    if (inFlight.current) return;
-    const text = latest.current.text.trim();
-    if (text === "") {
-      toast.error("Write a prompt first, and Auto-fill will pick where it runs.");
-      return;
-    }
-    inFlight.current = true;
-    setFilling(true);
-    latest.current.setTextEffect(ROUTING_EFFECT);
-    try {
-      const { decision } = await rpc.call("preview", { text });
-      const requested = selectionFor(decision);
-      // BB rebuilds this button when the project changes, but still answers.
-      const settled = await latest.current.experimental_setSelection(requested);
-      const { line, changed } = describeFill(decision, requested, settled);
-      if (changed === 0) toast.success(`Filled in: ${line}`);
-      else toast.warning(`Filled in, with changes: ${line}`);
-    } catch (error) {
-      toast.error(`Auto-fill failed: ${errorMessage(error)}`);
-    } finally {
-      latest.current.setTextEffect(null);
-      inFlight.current = false;
-      setFilling(false);
-    }
-  }, [rpc]);
-
-  return { filling, fill, warm };
-}
-
-function AutoFillButton({
-  fill,
-  filling,
-  warm,
-}: ReturnType<typeof useAutoFill>) {
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={cn(
-              COARSE_POINTER_PROMPT_ICON_ACTION_BUTTON_CLASS,
-              "text-muted-foreground hover:text-foreground",
-              filling && "auto-dispatch-routing",
-            )}
-            disabled={filling}
-            aria-label="Auto-fill"
-            // The first request on a cold connection is slow; open it on the way to the click.
-            onPointerEnter={warm}
-            onFocus={warm}
-            onClick={() => void fill()}
-          >
-            <HugeiconsIcon
-              icon={WandSparklesIcon}
-              className={COARSE_POINTER_ICON_SIZE_CLASS}
-              data-icon-root=""
-              aria-hidden
-            />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Auto-fill</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+function usePrefersReducedMotion(): boolean {
+  return useSyncExternalStore(
+    subscribeToReducedMotion,
+    () => window.matchMedia(REDUCED_MOTION).matches,
+    () => false,
   );
 }
 
-/** The Auto-fill button beside the composer's send button. */
-function AutoFillAction() {
-  const enabled = useAutoMode();
-  const autoFill = useAutoFill();
-  // With Auto on, the pickers are hidden and Jev chooses as the prompt is sent.
-  return enabled ? null : <AutoFillButton {...autoFill} />;
+function wandPart(
+  element: (typeof WandSparklesIcon)[number],
+  name: string,
+  props: Record<string, unknown>,
+) {
+  // The icon's own keys are dropped: they would collide with the motes'.
+  const [tag, { key: _key, ...attributes }] = element as [string, Record<string, unknown>];
+  return createElement(tag, { ...attributes, ...props, key: name });
 }
 
-function AutoBanner() {
+/**
+ * The Auto toggle's icon, which is how it shows its state: a filled button
+ * there would compete with send, the one filled control in that row. On, the
+ * sparkles are lit with a rainbow that drifts slowly across them. `moment`
+ * changes each time the wand should move, which restarts its animations:
+ * `flick` turns the stick, `cast` pops the sparkles and sends motes off the tip.
+ */
+function AutoWand({
+  state,
+  moment,
+  flick,
+  cast,
+}: {
+  state: WandState;
+  moment: number;
+  flick: boolean;
+  cast: boolean;
+}) {
+  const gradientId = `auto-dispatch-rainbow-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+  const still = usePrefersReducedMotion();
+  const lit = state === "on" || state === "pending";
+  const rainbow = `url(#${gradientId})`;
+  return (
+    <svg
+      key={moment}
+      viewBox="0 0 24 24"
+      fill="none"
+      className={cn(
+        COARSE_POINTER_ICON_SIZE_CLASS,
+        "auto-dispatch-wand",
+        state === "error" && "text-destructive",
+      )}
+      data-state={state}
+      data-flick={flick ? "" : undefined}
+      data-cast={cast ? "" : undefined}
+      data-icon-root=""
+      aria-hidden
+    >
+      <defs>
+        <linearGradient
+          id={gradientId}
+          gradientUnits="userSpaceOnUse"
+          x1="0"
+          y1="0"
+          x2="24"
+          y2="12"
+          spreadMethod="repeat"
+        >
+          {RAINBOW_HUES.map((hue) => (
+            <stop key={hue} offset={hue / 360} stopColor={`oklch(0.74 0.17 ${hue})`} />
+          ))}
+          {/* One full period of the gradient, so the loop has no jump. */}
+          {!still && (
+            <animateTransform
+              attributeName="gradientTransform"
+              type="translate"
+              from="0 0"
+              to="24 12"
+              dur={RAINBOW_DRIFT}
+              repeatCount="indefinite"
+            />
+          )}
+        </linearGradient>
+      </defs>
+      {WAND_STICK !== undefined && wandPart(WAND_STICK, "stick", { className: "stick" })}
+      {WAND_SPARKLES.map((sparkle, index) =>
+        wandPart(sparkle, `sparkle-${index}`, {
+          className: "sparkle",
+          ...(lit ? { fill: rainbow, stroke: rainbow } : {}),
+        }),
+      )}
+      {WAND_MOTES.map((mote, index) => (
+        <circle
+          key={`mote-${index}`}
+          className="mote"
+          cx={WAND_TIP.x}
+          cy={WAND_TIP.y}
+          r="0.9"
+          fill={lit ? rainbow : "currentColor"}
+          style={{ "--dx": `${mote.dx}px`, "--dy": `${mote.dy}px` } as CSSProperties}
+        />
+      ))}
+    </svg>
+  );
+}
+
+const NO_SESSION: LiveFillSnapshot = { enabled: false, pending: false, error: null };
+const getNoSession = () => NO_SESSION;
+const getNoCasts = () => 0;
+const subscribeToNothing = () => () => {};
+
+/**
+ * The Auto toggle, in the composer beside the send button. While it is on, Jev
+ * is asked again as the draft changes and the composer's pickers follow. Send
+ * waits until the pickers match the draft, so what runs is what was shown.
+ */
+function AutoToggle() {
   const enabled = useAutoMode();
   const composer = useComposer();
   const view = useComposerView();
   const rpc = useRpc<typeof rpcContract>();
-  const navigate = useBbNavigate();
-  const marker = useRef<HTMLDivElement>(null);
-  const [root, setRoot] = useState<HTMLElement | null>(null);
-  const [routing, setRouting] = useState(false);
-  const [setup, setSetup] = useState<{ hasApiKey: boolean; rotationSize: number } | null>(null);
-  const autoFill = useAutoFill();
+  const anchor = useRef<HTMLSpanElement>(null);
+  const [session, setSession] = useState<Session | null>(null);
 
-  // Auto only takes over the root New thread screen; composers that other
-  // plugins embed keep their own submit.
+  // BB rebuilds this button when the composer's project changes, which Auto
+  // itself causes. The session belongs to the composer, so it carries on.
   useLayoutEffect(() => {
-    if (marker.current === null) return;
-    return watchRootComposer(marker.current, setRoot);
+    const root = anchor.current === null ? null : findComposer(anchor.current);
+    if (root === null) return;
+    setSession(acquireSession(root));
+    return () => releaseSession(root);
   }, []);
 
   useLayoutEffect(() => {
-    if (root === null || !enabled) return;
-    root.setAttribute(AUTO_ATTRIBUTE, "on");
-    return () => root.removeAttribute(AUTO_ATTRIBUTE);
-  }, [root, enabled]);
+    session?.attach({
+      route: async (text) => selectionFor((await rpc.call("preview", { text })).decision),
+      setSelection: (selection) => composer.experimental_setSelection(selection),
+    });
+  }, [session, rpc, composer]);
 
-  useEffect(() => {
-    if (root === null || !enabled) return;
-    let cancelled = false;
-    rpc.call("status").then(
-      (status) => {
-        if (!cancelled) setSetup(status);
-      },
-      () => {},
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [root, enabled, rpc]);
+  const text = view.draft.text;
+  useEffect(() => session?.live.setEnabled(enabled), [session, enabled]);
+  useEffect(() => session?.live.setText(text), [session, text]);
 
-  // Get the server ready while the prompt is still being written: it opens
-  // its connection to Jev and refreshes what it knows about machines and
-  // projects, so pressing Enter costs one round trip.
+  // The first request on a cold connection takes a second or more, so the
+  // server opens it, and refreshes what it knows about machines and projects,
+  // before the first word is typed.
   const lastWarmAt = useRef(0);
   const warm = useCallback(() => {
     if (Date.now() - lastWarmAt.current < WARM_AT_MOST_EVERY_MS) return;
     lastWarmAt.current = Date.now();
     rpc.call("warm").catch(() => {});
   }, [rpc]);
-  const composing = !view.draft.isEmpty;
-  const draftText = view.draft.text;
   useEffect(() => {
-    if (root === null || !enabled) return;
+    if (!enabled) return;
     warm();
     window.addEventListener("focus", warm);
     return () => window.removeEventListener("focus", warm);
-  }, [root, enabled, warm]);
-  useEffect(() => {
-    if (root !== null && enabled && composing) warm();
-  }, [root, enabled, composing, draftText, warm]);
+  }, [enabled, warm]);
 
-  // The interceptor outlives renders, so it reads the latest state from a ref.
-  const latest = useRef({ composer, view });
-  latest.current = { composer, view };
-  // A touch send arrives as pointerup and then click, faster than a render.
-  const inFlight = useRef(false);
+  const snapshot = useSyncExternalStore(
+    session?.live.subscribe ?? subscribeToNothing,
+    session?.live.getSnapshot ?? getNoSession,
+  );
 
-  const dispatch = useCallback(async () => {
-    const current = latest.current;
-    if (inFlight.current) return;
-    const stored = parseStoredDraft(window.localStorage.getItem(ROOT_DRAFT_STORAGE_KEY));
-    const payload = buildDispatchPayload(current.composer.text, stored);
-    if (payload.text === "") return;
-    if (payload.attachments.length !== current.view.draft.attachmentCount) {
-      toast.error("Auto could not read this draft's attachments. Turn Auto off to send them.");
-      return;
-    }
-    const scope = current.view.scope;
-    inFlight.current = true;
-    setRouting(true);
-    current.composer.setInputLock(true);
-    current.composer.setTextEffect(ROUTING_EFFECT);
-    try {
-      const { threadId, decision } = await rpc.call("dispatch", {
-        ...payload,
-        attachmentProjectId: scope.kind === "new-thread" ? scope.projectId : null,
-      });
-      latest.current.composer.clear();
-      if (payload.attachments.length > 0) {
-        // `clear()` keeps attachments, and BB re-saves the draft as this screen
-        // unmounts. Drop the sent attachments once that has happened.
-        window.setTimeout(() => window.localStorage.removeItem(ROOT_DRAFT_STORAGE_KEY), 750);
-      }
-      toast.success(`Auto → ${decisionLine(decision)}`);
-      navigate.toThread(threadId);
-    } catch (error) {
-      toast.error(`Auto dispatch failed: ${errorMessage(error)}`);
-    } finally {
-      latest.current.composer.setTextEffect(null);
-      latest.current.composer.setInputLock(false);
-      inFlight.current = false;
-      setRouting(false);
-    }
-  }, [rpc, navigate]);
+  // Auto moving the pickers makes the wand cast, though not for moves made
+  // before this button was (re)built. A click flicks it, and casts if that
+  // switched Auto on.
+  const casts = useSyncExternalStore(
+    session?.subscribeCasts ?? subscribeToNothing,
+    session?.getCasts ?? getNoCasts,
+  );
+  const castsAtMount = useRef<number | null>(null);
+  if (session !== null && castsAtMount.current === null) castsAtMount.current = casts;
+  const moves = casts - (castsAtMount.current ?? casts);
+  const [clicks, setClicks] = useState({ count: 0, atMoves: -1 });
+  // The latest of the two is the one the wand is showing.
+  const clickedLast = clicks.count > 0 && clicks.atMoves === moves;
 
-  useEffect(() => {
-    if (root === null || !enabled) return;
-    return interceptSubmit(root, () => void dispatch());
-  }, [root, enabled, dispatch]);
-
-  if (root === null) return <div ref={marker} hidden />;
-
-  const needsSetup = setup !== null && (!setup.hasApiKey || setup.rotationSize === 0);
+  const state: WandState =
+    snapshot.error !== null ? "error" : snapshot.pending ? "pending" : enabled ? "on" : "off";
   return (
-    <div ref={marker} className="flex min-h-6 items-center gap-2 px-1 text-xs text-muted-foreground">
-      <label className="flex cursor-pointer items-center gap-2">
-        <Switch
-          checked={enabled}
-          disabled={routing}
-          onCheckedChange={autoMode.set}
-          aria-label="Auto dispatch"
-        />
-        <span className="font-medium text-foreground">Auto</span>
-      </label>
-      {/* BB leaves composer actions out of its compact layout, so the button moves here. */}
-      {!enabled && view.layout === "compact" && <AutoFillButton {...autoFill} />}
-      {enabled && routing && <span aria-live="polite">Routing…</span>}
-      {enabled && !routing && needsSetup && (
-        <span>
-          {setup.hasApiKey ? "Add a model to the rotation" : "Add a Jev API key"} in{" "}
-          <UrlLink href={SETTINGS_PATH} className="underline underline-offset-2 hover:text-foreground">
-            settings
-          </UrlLink>{" "}
-          to use Auto.
-        </span>
-      )}
-    </div>
+    <span ref={anchor} className="contents">
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn(
+                COARSE_POINTER_PROMPT_ICON_ACTION_BUTTON_CLASS,
+                // Pressed is drawn by the icon, not by the ghost button's fill.
+                "aria-pressed:bg-transparent aria-pressed:hover:bg-state-hover",
+                !enabled && "text-muted-foreground",
+              )}
+              aria-label="Auto"
+              aria-pressed={enabled}
+              // On the way to switching it on.
+              onPointerEnter={warm}
+              onFocus={warm}
+              onClick={() => {
+                setClicks((current) => ({ count: current.count + 1, atMoves: moves }));
+                autoMode.set(!enabled);
+              }}
+            >
+              <AutoWand
+                state={state}
+                moment={moves + clicks.count}
+                flick={clickedLast}
+                cast={clickedLast ? enabled : moves > 0}
+              />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {snapshot.error !== null
+              ? `Auto: ${snapshot.error}`
+              : enabled
+                ? "Auto is on: Jev picks where this runs as you type"
+                : "Auto: let Jev pick where this runs as you type"}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </span>
   );
 }
 
@@ -700,8 +704,7 @@ export default definePluginApp((app) => {
   app.composer.customize({
     id: "auto",
     scopes: ["new-thread"],
-    banners: [{ id: "toggle", chrome: "bare", component: AutoBanner }],
-    actions: [{ id: "fill", component: AutoFillAction }],
+    actions: [{ id: "toggle", component: AutoToggle }],
   });
   app.slots.settingsSection({
     id: "projects",
