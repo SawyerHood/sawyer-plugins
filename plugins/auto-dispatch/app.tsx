@@ -3,7 +3,6 @@
 // projects and environments Auto may choose between, the model rotation, and a
 // routing test.
 import {
-  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -26,14 +25,9 @@ import {
 import type { DecisionSummary, rpcContract, ScopeOptions } from "./server";
 import type { RotationEntry } from "./lib/router";
 import { autoMode } from "@/lib/auto-mode";
-import {
-  AUTO_ATTRIBUTE,
-  findRootComposeEditor,
-  interceptSubmit,
-  watchRootComposer,
-} from "@/lib/composer-dom";
-import { canFillComposer, fillComposer } from "@/lib/composer-fiber";
+import { AUTO_ATTRIBUTE, interceptSubmit, watchRootComposer } from "@/lib/composer-dom";
 import { buildDispatchPayload, parseStoredDraft, ROOT_DRAFT_STORAGE_KEY } from "@/lib/draft";
+import { describeFill, selectionFor } from "@/lib/fill";
 import { REASONING_LEVELS, type ReasoningLevel } from "@/lib/reasoning";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -75,28 +69,21 @@ function decisionLine(decision: DecisionSummary): string {
 /**
  * Auto-fill: ask Jev where the draft should run and set the composer's pickers
  * to the answer, without sending, so the choices can be changed first.
- * `anchor` is any element this plugin renders inside the composer.
  */
-function useAutoFill(anchor: RefObject<Element | null>) {
+function useAutoFill() {
   const composer = useComposer();
   const rpc = useRpc<typeof rpcContract>();
-  // Only the root New thread composer's pickers can be reached.
-  const [reachable, setReachable] = useState(false);
   const [filling, setFilling] = useState(false);
   const latest = useRef(composer);
   latest.current = composer;
   const inFlight = useRef(false);
-
-  useLayoutEffect(() => {
-    setReachable(anchor.current !== null && canFillComposer(anchor.current));
-  }, [anchor]);
 
   const warm = useCallback(() => {
     rpc.call("warm").catch(() => {});
   }, [rpc]);
 
   const fill = useCallback(async () => {
-    if (anchor.current === null || inFlight.current) return;
+    if (inFlight.current) return;
     const text = latest.current.text.trim();
     if (text === "") {
       toast.error("Write a prompt first, and Auto-fill will pick where it runs.");
@@ -107,23 +94,12 @@ function useAutoFill(anchor: RefObject<Element | null>) {
     latest.current.setTextEffect(ROUTING_EFFECT);
     try {
       const { decision } = await rpc.call("preview", { text });
-      // A reasoning pick is labelled with its level.
-      const reasoningLevel = REASONING_LEVELS.find((level) => level === decision.reasoning.label);
-      if (reasoningLevel === undefined) {
-        throw new Error(`Jev picked an unknown reasoning level, “${decision.reasoning.label}”.`);
-      }
-      // BB rebuilds the composer when the project changes, this button included.
-      const currentAnchor = () =>
-        anchor.current?.isConnected === true ? anchor.current : findRootComposeEditor();
-      await fillComposer(currentAnchor, {
-        projectId: decision.project.id,
-        environmentProviderId: decision.environment.id,
-        hostId: decision.machine.id,
-        providerId: decision.model.providerId,
-        model: decision.model.model,
-        reasoningLevel,
-      });
-      toast.success(`Filled in: ${decisionLine(decision)}`);
+      const requested = selectionFor(decision);
+      // BB rebuilds this button when the project changes, but still answers.
+      const settled = await latest.current.experimental_setSelection(requested);
+      const { line, changed } = describeFill(decision, requested, settled);
+      if (changed === 0) toast.success(`Filled in: ${line}`);
+      else toast.warning(`Filled in, with changes: ${line}`);
     } catch (error) {
       toast.error(`Auto-fill failed: ${errorMessage(error)}`);
     } finally {
@@ -131,16 +107,16 @@ function useAutoFill(anchor: RefObject<Element | null>) {
       inFlight.current = false;
       setFilling(false);
     }
-  }, [anchor, rpc]);
+  }, [rpc]);
 
-  return { reachable, filling, fill, warm };
+  return { filling, fill, warm };
 }
 
 function AutoFillButton({
   fill,
   filling,
   warm,
-}: Pick<ReturnType<typeof useAutoFill>, "fill" | "filling" | "warm">) {
+}: ReturnType<typeof useAutoFill>) {
   return (
     <TooltipProvider>
       <Tooltip>
@@ -178,14 +154,9 @@ function AutoFillButton({
 /** The Auto-fill button beside the composer's send button. */
 function AutoFillAction() {
   const enabled = useAutoMode();
-  const anchor = useRef<HTMLSpanElement>(null);
-  const { reachable, ...autoFill } = useAutoFill(anchor);
-  return (
-    <span ref={anchor} className="contents">
-      {/* With Auto on, the pickers are hidden and Jev chooses as the prompt is sent. */}
-      {reachable && !enabled && <AutoFillButton {...autoFill} />}
-    </span>
-  );
+  const autoFill = useAutoFill();
+  // With Auto on, the pickers are hidden and Jev chooses as the prompt is sent.
+  return enabled ? null : <AutoFillButton {...autoFill} />;
 }
 
 function AutoBanner() {
@@ -198,7 +169,7 @@ function AutoBanner() {
   const [root, setRoot] = useState<HTMLElement | null>(null);
   const [routing, setRouting] = useState(false);
   const [setup, setSetup] = useState<{ hasApiKey: boolean; rotationSize: number } | null>(null);
-  const { reachable: canFill, ...autoFill } = useAutoFill(marker);
+  const autoFill = useAutoFill();
 
   // Auto only takes over the root New thread screen; composers that other
   // plugins embed keep their own submit.
@@ -312,7 +283,7 @@ function AutoBanner() {
         <span className="font-medium text-foreground">Auto</span>
       </label>
       {/* BB leaves composer actions out of its compact layout, so the button moves here. */}
-      {!enabled && canFill && view.layout === "compact" && <AutoFillButton {...autoFill} />}
+      {!enabled && view.layout === "compact" && <AutoFillButton {...autoFill} />}
       {enabled && routing && <span aria-live="polite">Routing…</span>}
       {enabled && !routing && needsSetup && (
         <span>

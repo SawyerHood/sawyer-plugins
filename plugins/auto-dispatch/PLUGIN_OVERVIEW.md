@@ -24,4 +24,4 @@ Ask an agent to tune Auto Dispatch and the bundled skill reads which model and e
 
 ## Requirements
 
-Requires BB 0.43 or later, Plugin SDK 0.4.99 or later, and an API key for a gateway that serves Jev: the [Vercel AI Gateway](https://vercel.com/ai-gateway) or [OpenRouter](https://openrouter.ai/typesafe/jev-1.13). Each dispatch sends your prompt, your instructions, and the names, folders, and recent thread titles of your projects, plus machine names and load, to TypeSafe through that gateway. A dispatch costs a small fraction of a cent. Vercel's free tier allows only about 10 Jev calls per 5 minutes; any Gateway credit lifts that.
+Requires BB 0.43 or later, Plugin SDK 0.4.103 or later, and an API key for a gateway that serves Jev: the [Vercel AI Gateway](https://vercel.com/ai-gateway) or [OpenRouter](https://openrouter.ai/typesafe/jev-1.13). Each dispatch sends your prompt, your instructions, and the names, folders, and recent thread titles of your projects, plus machine names and load, to TypeSafe through that gateway. A dispatch costs a small fraction of a cent. Vercel's free tier allows only about 10 Jev calls per 5 minutes; any Gateway credit lifts that.
