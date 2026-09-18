@@ -4,6 +4,7 @@ Sawyer Hood's [BB](https://getbb.app) plugins, in one repository. Every plugin l
 
 | Plugin | Directory | What it does |
 | --- | --- | --- |
+| Agent Browser | [`plugins/agent-browser`](plugins/agent-browser) | Browser automation with agent-browser: a live chat preview, plus an optional human-like cursor and recordings. |
 | Better Notes | [`plugins/better-notes`](plugins/better-notes) | An editable fork of BB’s built-in document and notes library. |
 | Cascade | [`plugins/cascade`](plugins/cascade) | A scrollable, tiled layout for active BB threads. |
 | Compact Nav | [`plugins/compact-nav`](plugins/compact-nav) | Borderless sidebar icon buttons with native ordering and visibility controls. |
