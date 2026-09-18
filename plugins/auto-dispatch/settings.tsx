@@ -825,7 +825,7 @@ function ModelsSection() {
 }
 
 // ---------------------------------------------------------------------------
-// Command line, and Advanced
+// Permission mode, and Advanced
 // ---------------------------------------------------------------------------
 
 function Fold({ title, aside, children }: { title: string; aside?: string; children: ReactNode }) {
@@ -881,25 +881,24 @@ function MoreSection() {
   if (preferences === null) return <Loading error={error} />;
   return (
     <div>
-      <Fold title="Command line" aside="bb auto-dispatch spawn only">
-        <Card>
-          <Row
-            name="Permission mode"
-            detail="For threads spawn starts, lowered where a machine or provider allows less. In the composer, the permission picker is yours."
-          >
-            <div className="flex gap-1.5">
-              {PERMISSION_MODES.map((mode) => (
-                <Chip
-                  key={mode}
-                  on={preferences.permissionMode === mode}
-                  onClick={() => save({ permissionMode: mode })}
-                >
-                  {mode}
-                </Chip>
-              ))}
-            </div>
-          </Row>
-        </Card>
+      <Fold title="Permission mode" aside={preferences.permissionMode}>
+        <div className="space-y-2">
+          <div className="flex gap-1.5">
+            {PERMISSION_MODES.map((mode) => (
+              <Chip
+                key={mode}
+                on={preferences.permissionMode === mode}
+                onClick={() => save({ permissionMode: mode })}
+              >
+                {mode}
+              </Chip>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            For threads started with <code>bb auto-dispatch spawn</code>, lowered where a machine or
+            provider allows less. In the composer, the permission picker is yours.
+          </p>
+        </div>
       </Fold>
       <Fold title="Advanced">
         <Card>
