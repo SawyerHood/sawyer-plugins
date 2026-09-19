@@ -6,7 +6,7 @@ export default function compactNav(bb: BbPluginApi) {
       type: "boolean",
       label: "Place icons beside sidebar toggle",
       description: "Fit navigation between the sidebar toggle and back/forward arrows, wrapping extra icons below.",
-      default: false,
+      default: true,
     },
   });
 }

@@ -5,7 +5,7 @@ import "./app.css";
 function IconNavigation({ experimental_Original: Original }: ExperimentalSidebarNavigationProps) {
   const root = useRef<HTMLDivElement>(null);
   const settings = useSettings();
-  const inlineHeader = settings.values?.inlineHeader === true;
+  const inlineHeader = settings.values?.inlineHeader !== false;
 
   useLayoutEffect(() => {
     if (!inlineHeader) return;
