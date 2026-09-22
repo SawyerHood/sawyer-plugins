@@ -1,17 +1,15 @@
 ## More room for your threads
 
-Compact Nav replaces navigation rows with borderless icon buttons and removes the divider beneath them. Desktop buttons are 28px with 16px icons and 4px gaps. Mobile touch controls match BB's header with 36px buttons and 20px icons; larger touch screens use 40px buttons. Hover labels and selected states help identify each destination.
-
-Icons fit between the sidebar toggle and back/forward arrows by default, wrapping onto additional rows when needed. If the header has no room, navigation stays in its own row below. Disable **Place icons beside sidebar toggle** in the plugin's settings to always use a separate row. Updates preserve an explicitly saved preference.
+Compact Nav turns BB's navigation rows into borderless icon buttons and places them beside the sidebar toggle, between it and the back/forward arrows. Buttons match BB's own header controls: 28px with 16px icons on desktop, 36px with 20px icons on phones. Hover labels and selected states identify each destination, and icons that do not fit go into More.
 
 ## Keep your navigation preferences
 
-Your existing order and hidden items carry over. Open **More (…) → Customize sidebar** to reorder destinations and choose which ones appear. Hidden destinations remain available from More. BB continues to handle navigation, icons, and split gestures.
+Your existing order and hidden items carry over, because Compact Nav reads them from BB. Open **More (…) → Customize sidebar**, or right-click an icon, to reorder destinations or hide them. Right-click also offers **Open in split** and **View details** for plugin panels, and panel counts show as small badges.
 
 ## Enable or restore
 
-Choose **Settings → Appearance → Navigation → Compact Nav**. Select **bb (built-in)** to restore the original navigation.
+Installing Compact Nav selects it for both **Navigation** and **Header** under **Settings → Appearance**. Set **Header** back to **bb (built-in)** to keep the icons in a row above the thread list instead. Set **Navigation** to **Navigation**, or disable the plugin, to restore BB's rows.
 
 ## Requirements
 
-Requires BB 0.42 or later and Plugin SDK 0.4.53 or later. No extra service, account, or API key is needed. The plugin styles BB's original navigation component, so future BB interface changes may require a plugin update.
+Requires Plugin SDK 0.5.14 or later. No extra service, account, or API key is needed. Compact Nav uses only BB's public sidebar APIs, so it does not depend on BB's markup.
