@@ -12,4 +12,4 @@ Installing Compact Nav selects it for both **Navigation** and **Header** under *
 
 ## Requirements
 
-Requires Plugin SDK 0.5.14 or later. No extra service, account, or API key is needed. Compact Nav uses only BB's public sidebar APIs, so it does not depend on BB's markup.
+Requires Plugin SDK 0.5.15 or later. No extra service, account, or API key is needed. Compact Nav uses only BB's public sidebar APIs, so it does not depend on BB's markup.

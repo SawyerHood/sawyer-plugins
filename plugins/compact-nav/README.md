@@ -30,7 +30,7 @@ npm run build
 bb plugin install . --yes
 ```
 
-Requires Plugin SDK >=0.5.14. The plugin uses only the public navigation API (`experimental_useSidebarNavigation`, `experimental_sidebarHeader`); it does not depend on BB's markup.
+Requires Plugin SDK >=0.5.15. The plugin uses only the public navigation API (`experimental_useSidebarNavigation`, `experimental_sidebarHeader`); it does not depend on BB's markup.
 
 ## License
 
