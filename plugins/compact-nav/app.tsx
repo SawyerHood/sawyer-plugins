@@ -1,95 +1,227 @@
-import { definePluginApp, useSettings, type ExperimentalSidebarNavigationProps } from "@get-bb/plugin-sdk/app";
-import { useLayoutEffect, useRef } from "react";
+import {
+  definePluginApp,
+  experimental_SidebarNavigationIcon as NavigationIcon,
+  experimental_useSidebarNavigation,
+  experimental_useSidebarNavigationSplit,
+  type ExperimentalSidebarHeaderProps,
+  type ExperimentalSidebarNavigationItem,
+  type ExperimentalSidebarNavigationProps,
+} from "@get-bb/plugin-sdk/app";
+import { useLayoutEffect, useSyncExternalStore } from "react";
+import * as ContextMenu from "@radix-ui/react-context-menu";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import "./app.css";
 
-function IconNavigation({ experimental_Original: Original }: ExperimentalSidebarNavigationProps) {
-  const root = useRef<HTMLDivElement>(null);
-  const settings = useSettings();
-  const inlineHeader = settings.values?.inlineHeader !== false;
+const GAP = 4;
 
-  useLayoutEffect(() => {
-    if (!inlineHeader) return;
-    const element = root.current;
-    const region = element?.closest('[data-testid="sidebar-navigation-region"]');
-    const header = region?.previousElementSibling;
-    const trigger = document.querySelector<HTMLElement>('[data-sidebar="trigger"]');
-    const history = header?.firstElementChild;
-    if (!element || !header?.matches('[data-testid="app-sidebar-top-reserve-row"]') || !trigger || !history) return;
+let headerMounted = false;
+const headerListeners = new Set<() => void>();
 
-    // Measure the host controls so desktop chrome, touch targets, and sidebar
-    // resizing all leave the actual available space for navigation.
-    const update = () => {
-      const row = header.getBoundingClientRect();
-      const toggle = trigger.getBoundingClientRect();
-      const arrows = history.getBoundingClientRect();
-      const button = element.querySelector('[data-sidebar-navigation-item] > button');
-      const size = button?.getBoundingClientRect().width || 28;
-      const start = Math.max(12, toggle.right - row.left + 4);
-      const end = Math.max(8, row.right - arrows.left + 4);
-      if (!row.height || !toggle.width || row.width - start - end < size) {
-        delete element.dataset.headerPlacement;
-        return;
-      }
-      element.style.setProperty('--compact-nav-header-height', `${row.height}px`);
-      element.style.setProperty('--compact-nav-button-size', `${size}px`);
-      element.style.setProperty('--compact-nav-start', `${start}px`);
-      element.style.setProperty('--compact-nav-end', `${end}px`);
-      element.style.setProperty('--compact-nav-top', `${Math.max(0, toggle.top - row.top + (toggle.height - size) / 2)}px`);
-      element.dataset.headerPlacement = '';
-    };
-    const observer = new ResizeObserver(update);
-    observer.observe(header);
-    observer.observe(trigger);
-    observer.observe(history);
-    // CSS can resize the navigation after mount (for example on a touch
-    // device or during a plugin reload). Recalculate its vertical centering.
-    observer.observe(element);
-    const onTransitionEnd = (event: TransitionEvent) => {
-      if (event.target instanceof Element && (event.target.contains(header) || event.target.contains(trigger))) update();
-    };
-    window.addEventListener('resize', update);
-    document.addEventListener('transitionend', onTransitionEnd);
-    update();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', update);
-      document.removeEventListener('transitionend', onTransitionEnd);
-      delete element.dataset.headerPlacement;
-    };
-  }, [inlineHeader]);
-
-  return <div ref={root} className="compact-icon-navigation"><Original /></div>;
+function subscribeHeader(listener: () => void) {
+  headerListeners.add(listener);
+  return () => {
+    headerListeners.delete(listener);
+  };
 }
 
-export default definePluginApp(app => {
-  app.contentScripts.register({
-    id: "icon-labels",
-    mount() {
-      const owned = new Map<HTMLElement, string>();
-      const labelButtons = () => {
-        for (const [button, title] of owned) {
-          if (!button.isConnected) { if (button.title === title) button.removeAttribute("title"); owned.delete(button); }
-        }
-        document.querySelectorAll<HTMLElement>(".compact-icon-navigation [data-sidebar-navigation-item] > button, .compact-icon-navigation [data-testid=sidebar-navigation-more-row] button").forEach(button => {
-          if (button.hasAttribute("title")) return;
-          const title = button.getAttribute("aria-label") || button.textContent?.trim();
-          if (title) { button.title = title; owned.set(button, title); }
-        });
-      };
-      const observer = new MutationObserver(labelButtons);
-      observer.observe(document.body, { childList: true, subtree: true });
-      labelButtons();
-      return () => {
-        observer.disconnect();
-        for (const [button, title] of owned) if (button.title === title) button.removeAttribute("title");
-        owned.clear();
-      };
-    },
+function setHeaderMounted(next: boolean) {
+  headerMounted = next;
+  for (const listener of headerListeners) listener();
+}
+
+function IconButton({ item }: { item: ExperimentalSidebarNavigationItem }) {
+  const { activeItemId, actions } = experimental_useSidebarNavigation();
+  const split = experimental_useSidebarNavigationSplit(item.id);
+  const Accessory = item.experimental_Accessory;
+  return (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
+        <button
+          type="button"
+          className="compact-nav-button"
+          title={item.shortcut ? `${item.label} (${item.shortcut.label})` : item.label}
+          aria-label={item.label}
+          aria-current={item.id === activeItemId ? "page" : undefined}
+          aria-keyshortcuts={item.shortcut?.ariaKeyShortcuts}
+          disabled={item.isDisabled || item.isLoading}
+          {...split.splitProps}
+          onClick={(event) =>
+            actions.activate(item.id, {
+              openInSplit: event.metaKey || event.ctrlKey,
+            })
+          }
+        >
+          <NavigationIcon icon={item.icon} className="compact-nav-icon" />
+          {Accessory ? (
+            <span className="compact-nav-badge">
+              <Accessory />
+            </span>
+          ) : null}
+        </button>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content className="compact-nav-menu">
+          {split.isAvailable ? (
+            <ContextMenu.Item
+              className="compact-nav-menu-item"
+              onSelect={() => actions.activate(item.id, { openInSplit: true })}
+            >
+              Open in split
+            </ContextMenu.Item>
+          ) : null}
+          {item.pluginId ? (
+            <ContextMenu.Item
+              className="compact-nav-menu-item"
+              onSelect={() => actions.openDetails(item.id)}
+            >
+              View details
+            </ContextMenu.Item>
+          ) : null}
+          <ContextMenu.Item
+            className="compact-nav-menu-item"
+            onSelect={() => actions.setVisible(item.id, false)}
+          >
+            Hide from sidebar
+          </ContextMenu.Item>
+          <ContextMenu.Separator className="compact-nav-menu-separator" />
+          <ContextMenu.Item
+            className="compact-nav-menu-item"
+            onSelect={() => actions.openCustomize()}
+          >
+            Customize sidebar
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
+  );
+}
+
+function MoreMenu({
+  overflow,
+  hidden,
+}: {
+  overflow: readonly ExperimentalSidebarNavigationItem[];
+  hidden: readonly ExperimentalSidebarNavigationItem[];
+}) {
+  const { actions } = experimental_useSidebarNavigation();
+  const entry = (item: ExperimentalSidebarNavigationItem) => (
+    <DropdownMenu.Item
+      key={item.id}
+      className="compact-nav-menu-item"
+      disabled={item.isDisabled || item.isLoading}
+      onSelect={() => actions.activate(item.id, { openInSplit: false })}
+    >
+      <NavigationIcon icon={item.icon} className="compact-nav-icon" />
+      {item.label}
+    </DropdownMenu.Item>
+  );
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          className="compact-nav-button"
+          title="More"
+          aria-label="More sidebar navigation"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" className="compact-nav-icon">
+            <circle cx="3" cy="8" r="1.25" fill="currentColor" />
+            <circle cx="8" cy="8" r="1.25" fill="currentColor" />
+            <circle cx="13" cy="8" r="1.25" fill="currentColor" />
+          </svg>
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content className="compact-nav-menu" align="start">
+          {overflow.map(entry)}
+          {hidden.length > 0 ? (
+            <>
+              {overflow.length > 0 ? (
+                <DropdownMenu.Separator className="compact-nav-menu-separator" />
+              ) : null}
+              <DropdownMenu.Label className="compact-nav-menu-label">
+                Hidden
+              </DropdownMenu.Label>
+              {hidden.map(entry)}
+            </>
+          ) : null}
+          <DropdownMenu.Separator className="compact-nav-menu-separator" />
+          <DropdownMenu.Item
+            className="compact-nav-menu-item"
+            onSelect={() => actions.openCustomize()}
+          >
+            Customize sidebar
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
+function IconRow({
+  capacity,
+  singleLine = false,
+}: {
+  capacity: number;
+  singleLine?: boolean;
+}) {
+  const { items } = experimental_useSidebarNavigation();
+  const visible = items.filter((item) => item.isVisible);
+  const hidden = items.filter((item) => !item.isVisible);
+  const needsMore = hidden.length > 0 || visible.length > capacity;
+  const shown = needsMore
+    ? visible.slice(0, Math.max(0, capacity - 1))
+    : visible;
+  return (
+    <div className={singleLine ? "compact-nav-row compact-nav-row-single" : "compact-nav-row"}>
+      {shown.map((item) => (
+        <IconButton key={item.id} item={item} />
+      ))}
+      {needsMore ? (
+        <MoreMenu overflow={visible.slice(shown.length)} hidden={hidden} />
+      ) : null}
+    </div>
+  );
+}
+
+function CompactHeader({ width, controlSize }: ExperimentalSidebarHeaderProps) {
+  useLayoutEffect(() => {
+    setHeaderMounted(true);
+    return () => setHeaderMounted(false);
+  }, []);
+  return (
+    <IconRow
+      capacity={Math.floor((width + GAP) / (controlSize + GAP))}
+      singleLine
+    />
+  );
+}
+
+function CompactNavigation(_props: ExperimentalSidebarNavigationProps) {
+  const inHeader = useSyncExternalStore(
+    subscribeHeader,
+    () => headerMounted,
+    () => false,
+  );
+  if (inHeader) return null;
+  return (
+    <div className="compact-nav-region">
+      <IconRow capacity={Number.POSITIVE_INFINITY} />
+    </div>
+  );
+}
+
+export default definePluginApp((app) => {
+  app.slots.experimental_sidebarHeader({
+    id: "icons",
+    title: "Compact Nav",
+    description: "Navigation icons beside the sidebar toggle.",
+    component: CompactHeader,
   });
   app.slots.experimental_sidebarNavigation({
     id: "icons",
     title: "Compact Nav",
-    description: "Compact icons with BB's saved order, visibility, and customization controls.",
-    component: IconNavigation,
+    description: "Compact icons with bb's saved order, visibility, and customization.",
+    component: CompactNavigation,
   });
 });
