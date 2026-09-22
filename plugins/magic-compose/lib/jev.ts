@@ -255,10 +255,18 @@ async function requestOnce(
   const payload = JSON.stringify(requestBody);
   let status: number;
   let body: string;
-  if (args.fetchImpl === undefined) {
+  // The sidecar speaks HTTP/1.1 and sits on loopback, so it skips the shared
+  // HTTP/2 connection: fetch is one syscall to localhost, with nothing to warm.
+  const useFetch = args.fetchImpl !== undefined || args.provider === "local";
+  if (!useFetch) {
     ({ status, body } = await jevTransport.post(url, headers, payload, signal));
   } else {
-    const response = await args.fetchImpl(url, { method: "POST", signal, headers, body: payload });
+    const response = await (args.fetchImpl ?? fetch)(url, {
+      method: "POST",
+      signal,
+      headers,
+      body: payload,
+    });
     status = response.status;
     body = await response.text();
   }
