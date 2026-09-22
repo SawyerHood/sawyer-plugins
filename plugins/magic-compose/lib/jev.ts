@@ -1,22 +1,32 @@
 // Jev (TypeSafe's classifier model), reached through either gateway that
-// serves it. Both take a `state` and typed questions and return a choice with
+// serves it, or through a local laya sidecar instead of any gateway. The
+// gateways take a `state` and typed questions and return a choice with
 // probabilities; they differ in URL, headers, and where the confidence sits.
+// The local sidecar speaks the OpenRouter wire format, so it shares that path.
 //
 // - Vercel AI Gateway only serves evaluation models over the AI SDK's wire
 //   protocol, so this speaks that protocol with fetch rather than bundling the
 //   SDK. That also sidesteps the SDK rejecting near-tied answers whose rounded
 //   probabilities put the pick second.
 // - OpenRouter serves Jev from its Decisions endpoint.
+// - Local runs the free laya model in a small sidecar process; see
+//   sidecar/README.md.
 import { z } from "zod";
-import { DEFAULT_JEV_MODELS } from "./preferences";
+import { DEFAULT_JEV_MODELS, DEFAULT_LAYA_URL } from "./preferences";
 import { jevTransport } from "./transport";
 
-export type JevProvider = "vercel" | "openrouter";
+export type JevProvider = "local" | "vercel" | "openrouter";
 
 export const JEV_PROVIDERS: Record<
   JevProvider,
-  { name: string; url: string; defaultModel: string; keysUrl: string }
+  { name: string; url: string; defaultModel: string; keysUrl: string | null }
 > = {
+  local: {
+    name: "Local (laya)",
+    url: DEFAULT_LAYA_URL,
+    defaultModel: DEFAULT_JEV_MODELS.local,
+    keysUrl: null,
+  },
   vercel: {
     name: "Vercel AI Gateway",
     url: "https://ai-gateway.vercel.sh/v4/ai/evaluation-model",
@@ -75,8 +85,11 @@ export type JevState = string | { [key: string]: unknown };
 
 export interface AskChoicesArgs {
   provider: JevProvider;
-  apiKey: string;
+  /** Null for the local route; the gateways require a key. */
+  apiKey: string | null;
   model: string;
+  /** Overrides the provider's endpoint. The local route's custom sidecar URL. */
+  baseUrl?: string;
   state: JevState;
   /**
    * Every question to answer about `state`, by caller-chosen key. Jev answers
@@ -116,7 +129,7 @@ function buildRequest(args: AskChoicesArgs): { headers: Record<string, string>; 
     Authorization: `Bearer ${args.apiKey}`,
     "Content-Type": "application/json",
   };
-  // OpenRouter's schema wants a string for every option; Vercel accepts null.
+  // The local sidecar reads the OpenRouter shape too.
   const questions = Object.fromEntries(
     Object.values(args.questions).map((question, index) => [
       wireId(index),
@@ -124,7 +137,7 @@ function buildRequest(args: AskChoicesArgs): { headers: Record<string, string>; 
         type: "choice",
         instructions: question.instructions,
         criteria:
-          args.provider === "openrouter"
+          args.provider !== "vercel"
             ? Object.fromEntries(
                 Object.entries(question.options).map(([name, text]) => [name, text ?? ""]),
               )
@@ -137,6 +150,11 @@ function buildRequest(args: AskChoicesArgs): { headers: Record<string, string>; 
       headers: { ...base, "X-Title": "BB Magic Compose" },
       body: { model: args.model, state: args.state, questions },
     };
+  }
+  if (args.provider === "local") {
+    // Loopback: no key, no gateway headers.
+    const { Authorization: _unused, ...headers } = base;
+    return { headers, body: { model: args.model, state: args.state, questions } };
   }
   return {
     headers: {
@@ -172,6 +190,14 @@ function errorMessageFromBody(body: string): string {
 function errorForStatus(provider: JevProvider, status: number, body: string): JevError {
   const { name } = JEV_PROVIDERS[provider];
   const detail = errorMessageFromBody(body);
+  if (provider === "local") {
+    if (status === 400) {
+      return new JevError("bad_response", `The laya sidecar rejected the request: ${detail}`);
+    }
+    if (status >= 500) {
+      return new JevError("failed", `The laya sidecar failed (HTTP ${status})${detail === "" ? "" : `: ${detail}`}`);
+    }
+  }
   if (status === 401 || status === 403) {
     return new JevError(
       "auth",
@@ -225,7 +251,7 @@ async function requestOnce(
 ): Promise<Record<string, ChoiceAnswer>> {
   const startedAt = Date.now();
   const { headers, body: requestBody } = buildRequest(args);
-  const { url } = JEV_PROVIDERS[args.provider];
+  const url = args.baseUrl ?? JEV_PROVIDERS[args.provider].url;
   const payload = JSON.stringify(requestBody);
   let status: number;
   let body: string;
@@ -327,8 +353,11 @@ export async function askChoices(args: AskChoicesArgs): Promise<Record<string, C
 
 export interface JevRoute {
   provider: JevProvider;
-  apiKey: string;
+  /** Null for the local route; the gateways require a key. */
+  apiKey: string | null;
   model: string;
+  /** The local route's sidecar URL, when the user moved it off the default. */
+  baseUrl?: string;
 }
 
 /**

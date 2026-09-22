@@ -185,6 +185,74 @@ describe("askChoice on OpenRouter", () => {
   });
 });
 
+describe("askChoice on the local laya sidecar", () => {
+  it("speaks the Decisions wire format to the configured sidecar URL, with no key", async () => {
+    let request: { url: string; init: RequestInit } | undefined;
+    const fetchImpl: typeof fetch = async (url, init) => {
+      request = { url: String(url), init: init ?? {} };
+      return new Response(
+        JSON.stringify({
+          model: "laya-rl-agent",
+          answers: {
+            q0: { type: "choice", choice: "bb", confidence: 0.64, probabilities: { bb: 0.7, games: 0.3 } },
+          },
+          usage: { input_tokens: 112, output_tokens: 0 },
+        }),
+      );
+    };
+
+    const answer = await askChoice({
+      provider: "local",
+      apiKey: null,
+      model: "laya/english",
+      baseUrl: "http://127.0.0.1:8899/decisions",
+      state: { task: "Fix the sidebar" },
+      question,
+      fetchImpl,
+    });
+
+    expect(request?.url).toBe("http://127.0.0.1:8899/decisions");
+    const headers = request?.init.headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+    expect(JSON.parse(String(request?.init.body))).toEqual({
+      model: "laya/english",
+      state: { task: "Fix the sidebar" },
+      questions: {
+        q0: { type: "choice", instructions: question.instructions, criteria: { bb: "The BB app.", games: "Small games." } },
+      },
+    });
+    expect(answer).toMatchObject({
+      choice: "bb",
+      probabilities: { bb: 0.7, games: 0.3 },
+      confidence: 0.64,
+      inputTokens: 112,
+    });
+  });
+
+  it("falls back to the sidecar's default endpoint when no URL is set", async () => {
+    let url = "";
+    const fetchImpl: typeof fetch = async (requested) => {
+      url = String(requested);
+      return new Response(JSON.stringify({ answers: { q0: { type: "choice", choice: "bb" } } }));
+    };
+    await askChoice({ provider: "local", apiKey: null, model: "m", state: "s", question, fetchImpl });
+    expect(url).toBe(JEV_PROVIDERS.local.url);
+  });
+
+  it("explains a sidecar fault without retrying forever", async () => {
+    const error = await askChoice({
+      provider: "local",
+      apiKey: null,
+      model: "m",
+      state: "s",
+      question,
+      fetchImpl: respond(500, { error: "laya inference failed: no Metal device" }),
+    }).catch((cause: unknown) => cause as JevError) as JevError;
+    expect(error.code).toBe("failed");
+    expect(error.message).toContain("laya sidecar");
+  });
+});
+
 describe("askChoicesVia", () => {
   const vercel = { provider: "vercel" as const, apiKey: "v", model: "typesafe-ai/jev" };
   const openrouter = { provider: "openrouter" as const, apiKey: "o", model: "typesafe/jev-1.13" };
