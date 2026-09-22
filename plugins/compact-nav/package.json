@@ -4,7 +4,7 @@
   "type": "module",
   "engines": {
     "bb": ">=0.42",
-    "bbPluginSdk": ">=0.5.11"
+    "bbPluginSdk": ">=0.5.14"
   },
   "bb": {
     "name": "Compact Nav",

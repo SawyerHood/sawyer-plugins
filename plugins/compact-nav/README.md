@@ -13,7 +13,7 @@ A BB plugin that turns the main sidebar navigation into compact, borderless icon
 bb plugin install https://github.com/SawyerHood/bb-plugin-compact-nav.git
 ```
 
-Under **Settings → Appearance**, click **Use** next to **Compact Nav** to put the icons beside the sidebar toggle. To keep them in a row above the thread list instead, set only **Navigation** to **Compact Nav**. If the header plugin is not picked or stops working, the row above the thread list comes back on its own.
+Installing Compact Nav picks it for both **Navigation** and **Header** under **Settings → Appearance**, so the icons sit beside the sidebar toggle right away. To keep them in a row above the thread list instead, set **Header** back to **bb (built-in)**. If the header is not picked or stops working, the row above the thread list comes back on its own, and disabling the plugin returns the sidebar to bb's Navigation.
 
 ## Customize
 
@@ -30,7 +30,7 @@ npm run build
 bb plugin install . --yes
 ```
 
-Requires Plugin SDK >=0.5.11. The plugin uses only the public navigation API (`experimental_useSidebarNavigation`, `experimental_sidebarHeader`); it does not depend on BB's markup.
+Requires Plugin SDK >=0.5.14. The plugin uses only the public navigation API (`experimental_useSidebarNavigation`, `experimental_sidebarHeader`); it does not depend on BB's markup.
 
 ## License
 
