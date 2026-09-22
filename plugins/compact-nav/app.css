@@ -1,105 +1,111 @@
-.compact-icon-navigation {
-  --compact-nav-target-size: 28px;
-  --compact-nav-icon-size: 16px;
-}
-[data-testid="sidebar-navigation-region"]:has(.compact-icon-navigation):not(:has([data-sidebar-navigation-customize-mode])) {
-  display: flow-root;
-  flex-shrink: 0;
-}
-.compact-icon-navigation[data-header-placement]:not(:has([data-sidebar-navigation-customize-mode])) {
-  position: relative;
-  display: flow-root;
-  margin-top: calc(-1 * var(--compact-nav-header-height));
-  padding: var(--compact-nav-top) 8px 0 12px;
-  min-height: var(--compact-nav-header-height);
-  pointer-events: none;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-.compact-icon-navigation[data-header-placement]:not(:has([data-sidebar-navigation-customize-mode]))::before {
-  content: "";
-  float: left;
-  width: calc(var(--compact-nav-start) - 12px);
-  height: var(--compact-nav-button-size);
-}
-.compact-icon-navigation[data-header-placement] [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode]) {
-  display: block;
-  padding: 0 0 2px;
-  line-height: 0;
-}
-/* Floats reserve only the first line; subsequent lines use the full width. */
-.compact-icon-navigation[data-header-placement] [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode])::before {
-  content: "";
-  float: right;
-  width: calc(var(--compact-nav-end) - 8px);
-  height: var(--compact-nav-button-size);
-}
-.compact-icon-navigation[data-header-placement] [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode]) > :is([data-sidebar-navigation-item], [data-testid="sidebar-navigation-more-row"]) {
-  display: inline-flex;
-  vertical-align: top;
-  margin: 0 4px 4px 0;
-  pointer-events: auto;
-}
-.compact-icon-navigation [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode]) {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  /* Match the host sidebar toggle's 12px left inset. */
+.compact-nav-region {
   padding: 6px 8px 2px 12px;
 }
-[data-testid="sidebar-navigation-region"]:has(.compact-icon-navigation) + [data-testid="app-sidebar-navigation-divider"] {
-  display: none;
+
+.compact-nav-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }
-.compact-icon-navigation [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode]) > :is([data-sidebar-navigation-item], [data-testid="sidebar-navigation-more-row"]) {
-  width: var(--compact-nav-target-size);
-  height: var(--compact-nav-target-size);
-  margin: 0;
-  flex: 0 0 var(--compact-nav-target-size);
+
+.compact-nav-row-single {
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
 }
-.compact-icon-navigation [data-sidebar-navigation-item] > button,
-.compact-icon-navigation [data-testid="sidebar-navigation-more-row"] button {
-  width: var(--compact-nav-target-size);
-  height: var(--compact-nav-target-size);
-  min-height: var(--compact-nav-target-size);
+
+.compact-nav-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--bb-sidebar-control-size);
+  height: var(--bb-sidebar-control-size);
   padding: 0;
-  gap: 0;
-  justify-content: center;
   border: 0;
   border-radius: 8px;
+  background: transparent;
+  color: var(--sidebar-foreground);
+  cursor: pointer;
 }
-/* Retain host labels for screen readers while showing only the icon. */
-.compact-icon-navigation [data-sidebar-navigation-item] > button > :is(span,div):not([data-plugin-icon-asset]),
-.compact-icon-navigation [data-testid="sidebar-navigation-more-row"] button > span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+
+.compact-nav-button:hover {
+  background: var(--sidebar-accent);
 }
-.compact-icon-navigation [data-sidebar-navigation-item] > button > svg,
-.compact-icon-navigation [data-testid="sidebar-navigation-more-row"] button > svg,
-.compact-icon-navigation [data-sidebar-navigation-item] > button > [data-plugin-icon-asset] {
-  width: var(--compact-nav-icon-size);
-  height: var(--compact-nav-icon-size);
+
+.compact-nav-button:focus-visible {
+  outline: 2px solid var(--sidebar-ring);
+  outline-offset: -2px;
 }
-.compact-icon-navigation [data-sidebar-navigation-item] > :is(div,span) { display: none; }
-.compact-icon-navigation [data-sidebar-navigation-item] > button[aria-current="page"] {
+
+.compact-nav-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.compact-nav-button[aria-current="page"] {
   color: var(--primary);
   background: var(--sidebar-accent);
 }
-@media (pointer: coarse) {
-  .compact-icon-navigation {
-    --compact-nav-target-size: 40px;
-  }
+
+.compact-nav-icon {
+  width: var(--bb-sidebar-control-icon-size);
+  height: var(--bb-sidebar-control-icon-size);
+  flex-shrink: 0;
 }
-/* Match BB's compact touch header controls, including the sidebar toggle. */
-@media (width < 48rem) and (pointer: coarse) {
-  .compact-icon-navigation {
-    --compact-nav-target-size: 36px;
-    --compact-nav-icon-size: 20px;
-  }
+
+.compact-nav-badge {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  max-width: 2rem;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.compact-nav-menu {
+  z-index: 60;
+  min-width: 11rem;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.16);
+}
+
+.compact-nav-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  cursor: default;
+  user-select: none;
+}
+
+.compact-nav-menu-item[data-highlighted] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.compact-nav-menu-item[data-disabled] {
+  opacity: 0.5;
+}
+
+.compact-nav-menu-label {
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.compact-nav-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
 }
