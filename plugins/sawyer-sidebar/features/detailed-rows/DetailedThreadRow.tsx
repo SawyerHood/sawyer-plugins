@@ -17,8 +17,17 @@ export function useDetailedRows(): boolean {
   return useSettings().values?.[DETAILED_ROWS_SETTING] === true;
 }
 
-/** Row classes for detailed mode: a padded column instead of a fixed-height line. */
-export const DETAILED_ROW_CLASS = "h-auto flex-col items-stretch gap-0.5 py-1.5";
+/**
+ * Row classes for detailed mode: a padded column instead of a fixed-height
+ * line. The transparent top and bottom borders, with the background clipped to
+ * the padding box, leave a gap between neighbouring cards' hover and selection
+ * without margins, which the windowed list would not measure.
+ */
+export const DETAILED_ROW_CLASS =
+  "h-auto flex-col items-stretch gap-1 border-y-2 border-transparent bg-clip-padding py-2 pr-2.5";
+
+const DETAIL_LINE_CLASS =
+  "pointer-events-none flex min-w-0 items-center text-[11px] leading-4 text-muted-foreground/80";
 
 function pullRequestIcon(pullRequest: PluginSidebarPullRequest): string {
   if (pullRequest.state === "merged") return "GitMerge";
@@ -87,16 +96,18 @@ export function DetailedThreadRow({
     <>
       <span
         data-sidebar-thread-detail="header"
-        className="pointer-events-none flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+        className={`${DETAIL_LINE_CLASS} gap-1.5`}
       >
         <Icon name="Code" className="size-3 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1 truncate">{projectName ?? ""}</span>
         {status}
       </span>
-      <span className="flex min-w-0 items-center gap-2">{children}</span>
+      <span className="flex min-w-0 items-center gap-2 font-medium">
+        {children}
+      </span>
       <span
         data-sidebar-thread-detail="footer"
-        className="pointer-events-none flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
+        className={`${DETAIL_LINE_CLASS} gap-2`}
       >
         <span className="min-w-0 flex-1">
           <BranchOrPullRequest thread={thread} />
