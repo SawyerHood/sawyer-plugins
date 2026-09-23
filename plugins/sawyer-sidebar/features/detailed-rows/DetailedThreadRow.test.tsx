@@ -2,6 +2,7 @@
 
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { waitFor } from "@testing-library/react";
 import type {
   PluginSidebarPullRequest,
   PluginSidebarThread,
@@ -11,6 +12,7 @@ import { TooltipProvider } from "../../vendor/shared-ui/components/ui/tooltip.js
 import { makeSidebarThread } from "../../app/model/fixtures.js";
 import { toSidebarThread } from "../../app/model/sidebar-thread.js";
 import { ThreadRow } from "../../app/rows/ThreadRow.js";
+import { resetRepoAvatarsForTest } from "../repo-avatars/useRepoAvatar.js";
 
 function Harness({ thread }: { thread: PluginSidebarThread }) {
   return (
@@ -38,10 +40,12 @@ function renderRow({
   detailed,
   thread = makeSidebarThread(),
   pullRequest,
+  avatars = {},
 }: {
   detailed: boolean;
   thread?: PluginSidebarThread;
   pullRequest?: PluginSidebarPullRequest;
+  avatars?: Record<string, string | null>;
 }) {
   return renderSlot(
     { component: Harness },
@@ -50,6 +54,7 @@ function renderRow({
       settings: { detailedRows: detailed },
       sidebarThreads: { threads: [thread], projects: [PROJECT] },
       sidebarPullRequests: pullRequest ? { [thread.id]: pullRequest } : {},
+      rpc: { repoAvatars: async () => ({ avatars }) },
     },
   );
 }
@@ -76,7 +81,10 @@ function worktreeThread(
 const detail = (container: HTMLElement, part: string) =>
   container.querySelector(`[data-sidebar-thread-detail="${part}"]`);
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  resetRepoAvatarsForTest();
+});
 
 describe("detailed thread rows", () => {
   it("keeps the one-line row when detailed mode is off", () => {
@@ -163,5 +171,25 @@ describe("detailed thread rows", () => {
     expect(detail(container, "footer")?.className).toContain(
       "pointer-events-none",
     );
+  });
+
+  it("shows the repo owner's avatar for the project", async () => {
+    const { container } = renderRow({
+      detailed: true,
+      thread: worktreeThread(),
+      avatars: { proj_test: "https://avatars.githubusercontent.com/u/1?s=64" },
+    });
+    await waitFor(() =>
+      expect(
+        detail(container, "repo-avatar")?.getAttribute("src"),
+      ).toBe("https://avatars.githubusercontent.com/u/1?s=64"),
+    );
+  });
+
+  it("draws a divider under each card", () => {
+    const { container } = renderRow({ detailed: true, thread: worktreeThread() });
+    expect(
+      container.querySelector("[data-sidebar-thread-divider]"),
+    ).not.toBeNull();
   });
 });

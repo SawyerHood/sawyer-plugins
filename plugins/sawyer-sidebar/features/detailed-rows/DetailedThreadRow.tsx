@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   experimental_useSidebarThreadPullRequest as useSidebarThreadPullRequest,
   useSettings,
@@ -11,6 +11,7 @@ import {
   useSidebarProjectName,
 } from "../../app/model/use-sidebar-data.js";
 import { ThreadProviderIcon } from "../provider-icon/ThreadProviderIcon.js";
+import { useRepoAvatar } from "../repo-avatars/useRepoAvatar.js";
 import { DETAILED_ROWS_SETTING } from "./settings.js";
 
 export function useDetailedRows(): boolean {
@@ -28,6 +29,26 @@ export const DETAILED_ROW_CLASS =
 
 const DETAIL_LINE_CLASS =
   "pointer-events-none flex min-w-0 items-center text-[11px] leading-4 text-muted-foreground/80";
+
+/** The repo owner's GitHub avatar, or a generic code glyph without one. */
+function ProjectGlyph({ projectId }: { projectId: string }) {
+  const avatarUrl = useRepoAvatar(projectId);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  if (avatarUrl !== null && avatarUrl !== failedUrl) {
+    return (
+      <img
+        data-sidebar-thread-detail="repo-avatar"
+        src={avatarUrl}
+        alt=""
+        loading="lazy"
+        draggable={false}
+        onError={() => setFailedUrl(avatarUrl)}
+        className="size-3.5 shrink-0 rounded-[3px]"
+      />
+    );
+  }
+  return <Icon name="Code" className="size-3 shrink-0" aria-hidden />;
+}
 
 function pullRequestIcon(pullRequest: PluginSidebarPullRequest): string {
   if (pullRequest.state === "merged") return "GitMerge";
@@ -98,7 +119,7 @@ export function DetailedThreadRow({
         data-sidebar-thread-detail="header"
         className={`${DETAIL_LINE_CLASS} gap-1.5`}
       >
-        <Icon name="Code" className="size-3 shrink-0" aria-hidden />
+        <ProjectGlyph projectId={thread.projectId} />
         <span className="min-w-0 flex-1 truncate">{projectName ?? ""}</span>
         {status}
       </span>
@@ -123,6 +144,11 @@ export function DetailedThreadRow({
         ) : null}
         <ThreadProviderIcon providerId={thread.providerId} />
       </span>
+      <span
+        aria-hidden
+        data-sidebar-thread-divider=""
+        className="pointer-events-none absolute inset-x-2 -bottom-[2px] h-px bg-border-hairline"
+      />
     </>
   );
 }
