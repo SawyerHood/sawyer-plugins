@@ -52,30 +52,124 @@ index 775aab5..d0a9154 100644
      const withStatus = renderThreadRow({
        hasComposerDraft: true,
 diff --git a/app/rows/ThreadRow.tsx b/app/rows/ThreadRow.tsx
-index bb203e0..53ea02d 100644
+index bb203e0..9624b92 100644
 --- a/app/rows/ThreadRow.tsx
 +++ b/app/rows/ThreadRow.tsx
-@@ -43,6 +43,7 @@ import {
+@@ -43,6 +43,13 @@ import {
    type PluginSidebarSplitPane,
    type PluginSidebarThreadRowStatus,
  } from "@get-bb/plugin-sdk/app";
++import {
++  DETAILED_ROW_CLASS,
++  DetailedThreadRow,
++  statusTextFor,
++  useDetailedRows,
++} from "../../features/detailed-rows/DetailedThreadRow.js";
 +import { ThreadProviderIcon } from "../../features/provider-icon/ThreadProviderIcon.js";
  import type { SidebarThread } from "../model/sidebar-thread.js";
  import { useSidebarProjectName } from "../model/use-sidebar-data.js";
  import { AppCommandShortcutPill } from "../ui/AppCommandShortcutPill.js";
-@@ -553,6 +554,7 @@ function ThreadRowComponent({
+@@ -314,6 +321,7 @@ function ThreadRowComponent({
+   const [isDropdownActionsOpen, setIsDropdownActionsOpen] = useState(false);
+   const [isContextActionsOpen, setIsContextActionsOpen] = useState(false);
+   const actions = experimental_useSidebarThreadActions();
++  const detailed = useDetailedRows();
+   const shortcut = useSidebarThreadShortcut(thread.id);
+   const pluginThreadRowStatus = useSidebarThreadRowStatus(thread.id);
+   const { hasUnsubmittedDraft: hasComposerDraft } = useSidebarThreadDraft(
+@@ -428,9 +436,11 @@ function ThreadRowComponent({
+     SIDEBAR_ROW_BASE_CLASS,
+     LIST_HOVER_TRANSITION,
+     parentOptions?.stickyLevel === undefined && "relative",
+-    options.isCompact
+-      ? COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS
+-      : COARSE_POINTER_ROW_HEIGHT_CLASS,
++    detailed
++      ? DETAILED_ROW_CLASS
++      : options.isCompact
++        ? COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS
++        : COARSE_POINTER_ROW_HEIGHT_CLASS,
+     showActive
+       ? SIDEBAR_ROW_SELECTED_STATE_CLASS
+       : SIDEBAR_ROW_INTERACTIVE_STATE_CLASS,
+@@ -468,7 +478,7 @@ function ThreadRowComponent({
+     },
+     [],
+   );
+-  const rowContent = (
++  const rowBody = (
+     <>
+       {parentOptions?.stickyLevel !== undefined && parentGuideLeft !== null ? (
+         <span
+@@ -516,6 +526,7 @@ function ThreadRowComponent({
+       <span
+         className={cn(
+           "relative flex min-w-0 flex-1 items-center gap-1.5 self-stretch",
++          detailed && "static",
+           !shortcut &&
+             !isEditing &&
+             (parentOptions && hasChildren
+@@ -553,6 +564,7 @@ function ThreadRowComponent({
            aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
            className="absolute inset-0 rounded-md outline-none"
          />
-+        <ThreadProviderIcon providerId={thread.providerId} />
++        {detailed ? null : <ThreadProviderIcon providerId={thread.providerId} />}
          <span
            className={cn(
              "pointer-events-none relative flex min-w-0 items-center self-stretch",
+@@ -652,7 +664,7 @@ function ThreadRowComponent({
+                       isWorking={splitIndicatorIsWorking}
+                     />
+                   </span>
+-                ) : (
++                ) : detailed ? null : (
+                   <ThreadTrailingIndicator
+                     {...trailingIndicatorState}
+                     hideIdleDraftLabel={
+@@ -697,6 +709,22 @@ function ThreadRowComponent({
+     </>
+   );
+ 
++  const rowContent = detailed ? (
++    <DetailedThreadRow
++      thread={thread}
++      status={
++        trailingIndicatorResolution.pluginStatusIsVisible &&
++        pluginThreadRowStatus !== null
++          ? { text: pluginThreadRowStatus.label, className: "text-muted-foreground" }
++          : statusTextFor(trailingIndicatorKind)
++      }
++    >
++      {rowBody}
++    </DetailedThreadRow>
++  ) : (
++    rowBody
++  );
++
+   const row = renderThreadRowContainer({
+     children: rowContent,
+     className: rowClassName,
 diff --git a/server.ts b/server.ts
-index 57fe117..c0ede7a 100644
+index 57fe117..d5a5c44 100644
 --- a/server.ts
 +++ b/server.ts
-@@ -196,7 +196,7 @@ export default async function threadListPlugin(bb: BbPluginApi) {
+@@ -6,6 +6,7 @@ import {
+   type BbPluginApi,
+ } from "@get-bb/plugin-sdk";
+ import { z } from "zod";
++import { defineSawyerSidebarSettings } from "./features/detailed-rows/settings.js";
+ import {
+   defaultPreferences,
+   describePreference,
+@@ -180,6 +181,7 @@ const JSON_OPTION = {
+ } as const;
+ 
+ export default async function threadListPlugin(bb: BbPluginApi) {
++  defineSawyerSidebarSettings(bb);
+   const store = createPreferenceStore(bb);
+ 
+   bb.rpc.register(threadListRpcContract, {
+@@ -196,7 +198,7 @@ export default async function threadListPlugin(bb: BbPluginApi) {
  
    bb.cli.register(
      defineCli({

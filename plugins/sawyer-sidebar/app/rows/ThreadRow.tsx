@@ -43,6 +43,12 @@ import {
   type PluginSidebarSplitPane,
   type PluginSidebarThreadRowStatus,
 } from "@get-bb/plugin-sdk/app";
+import {
+  DETAILED_ROW_CLASS,
+  DetailedThreadRow,
+  statusTextFor,
+  useDetailedRows,
+} from "../../features/detailed-rows/DetailedThreadRow.js";
 import { ThreadProviderIcon } from "../../features/provider-icon/ThreadProviderIcon.js";
 import type { SidebarThread } from "../model/sidebar-thread.js";
 import { useSidebarProjectName } from "../model/use-sidebar-data.js";
@@ -315,6 +321,7 @@ function ThreadRowComponent({
   const [isDropdownActionsOpen, setIsDropdownActionsOpen] = useState(false);
   const [isContextActionsOpen, setIsContextActionsOpen] = useState(false);
   const actions = experimental_useSidebarThreadActions();
+  const detailed = useDetailedRows();
   const shortcut = useSidebarThreadShortcut(thread.id);
   const pluginThreadRowStatus = useSidebarThreadRowStatus(thread.id);
   const { hasUnsubmittedDraft: hasComposerDraft } = useSidebarThreadDraft(
@@ -429,9 +436,11 @@ function ThreadRowComponent({
     SIDEBAR_ROW_BASE_CLASS,
     LIST_HOVER_TRANSITION,
     parentOptions?.stickyLevel === undefined && "relative",
-    options.isCompact
-      ? COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS
-      : COARSE_POINTER_ROW_HEIGHT_CLASS,
+    detailed
+      ? DETAILED_ROW_CLASS
+      : options.isCompact
+        ? COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS
+        : COARSE_POINTER_ROW_HEIGHT_CLASS,
     showActive
       ? SIDEBAR_ROW_SELECTED_STATE_CLASS
       : SIDEBAR_ROW_INTERACTIVE_STATE_CLASS,
@@ -469,7 +478,7 @@ function ThreadRowComponent({
     },
     [],
   );
-  const rowContent = (
+  const rowBody = (
     <>
       {parentOptions?.stickyLevel !== undefined && parentGuideLeft !== null ? (
         <span
@@ -517,6 +526,7 @@ function ThreadRowComponent({
       <span
         className={cn(
           "relative flex min-w-0 flex-1 items-center gap-1.5 self-stretch",
+          detailed && "static",
           !shortcut &&
             !isEditing &&
             (parentOptions && hasChildren
@@ -554,7 +564,7 @@ function ThreadRowComponent({
           aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
           className="absolute inset-0 rounded-md outline-none"
         />
-        <ThreadProviderIcon providerId={thread.providerId} />
+        {detailed ? null : <ThreadProviderIcon providerId={thread.providerId} />}
         <span
           className={cn(
             "pointer-events-none relative flex min-w-0 items-center self-stretch",
@@ -654,7 +664,7 @@ function ThreadRowComponent({
                       isWorking={splitIndicatorIsWorking}
                     />
                   </span>
-                ) : (
+                ) : detailed ? null : (
                   <ThreadTrailingIndicator
                     {...trailingIndicatorState}
                     hideIdleDraftLabel={
@@ -697,6 +707,22 @@ function ThreadRowComponent({
         )}
       </span>
     </>
+  );
+
+  const rowContent = detailed ? (
+    <DetailedThreadRow
+      thread={thread}
+      status={
+        trailingIndicatorResolution.pluginStatusIsVisible &&
+        pluginThreadRowStatus !== null
+          ? { text: pluginThreadRowStatus.label, className: "text-muted-foreground" }
+          : statusTextFor(trailingIndicatorKind)
+      }
+    >
+      {rowBody}
+    </DetailedThreadRow>
+  ) : (
+    rowBody
   );
 
   const row = renderThreadRowContainer({

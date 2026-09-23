@@ -6,6 +6,7 @@ import {
   type BbPluginApi,
 } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { defineSawyerSidebarSettings } from "./features/detailed-rows/settings.js";
 import {
   defaultPreferences,
   describePreference,
@@ -180,6 +181,7 @@ const JSON_OPTION = {
 } as const;
 
 export default async function threadListPlugin(bb: BbPluginApi) {
+  defineSawyerSidebarSettings(bb);
   const store = createPreferenceStore(bb);
 
   bb.rpc.register(threadListRpcContract, {
