@@ -22,6 +22,14 @@ export function useDetailedRows(): boolean {
 }
 
 /**
+ * The hover buttons (archive, more) are 28px tall, more than the 20px title
+ * line, so they would poke out of the card's top edge. Keep them on the title
+ * line, where the status glyph is, at the line's height.
+ */
+const HOVER_ACTIONS_FIT_TITLE_LINE_CLASS =
+  "[&_.bb-sidebar-hover-actions_button]:h-5";
+
+/**
  * Row classes for detailed mode: a padded column instead of a fixed-height
  * line. The transparent top and bottom borders, with the background clipped to
  * the padding box, leave a gap between neighbouring cards' hover and selection
@@ -31,8 +39,10 @@ export function useDetailedRows(): boolean {
  * leaves room above its capitals, while the detail line's icons fill theirs,
  * so no padding on top and 5px below put both 6px from the card's edge.
  */
-const DETAILED_ROW_CLASS =
-  "h-auto flex-col items-stretch gap-px border-y border-transparent bg-clip-padding pt-0 pb-[5px] pr-2.5";
+const DETAILED_ROW_CLASS = [
+  "h-auto flex-col items-stretch gap-px border-y border-transparent bg-clip-padding pt-0 pb-[5px] pr-2.5",
+  HOVER_ACTIONS_FIT_TITLE_LINE_CLASS,
+].join(" ");
 
 /**
  * Card classes for one row. A parent with its children showing and each child
