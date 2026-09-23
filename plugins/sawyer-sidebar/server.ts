@@ -7,7 +7,7 @@ import {
 } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { defineSawyerSidebarSettings } from "./features/detailed-rows/settings.js";
-import { registerRepoAvatars } from "./features/repo-avatars/server.js";
+import { registerSidebarInfo } from "./features/sidebar-info/server.js";
 import {
   defaultPreferences,
   describePreference,
@@ -183,7 +183,7 @@ const JSON_OPTION = {
 
 export default async function threadListPlugin(bb: BbPluginApi) {
   defineSawyerSidebarSettings(bb);
-  registerRepoAvatars(bb);
+  registerSidebarInfo(bb);
   const store = createPreferenceStore(bb);
 
   bb.rpc.register(threadListRpcContract, {

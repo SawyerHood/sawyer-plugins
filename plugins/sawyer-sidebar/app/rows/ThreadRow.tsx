@@ -663,7 +663,7 @@ function ThreadRowComponent({
                       isWorking={splitIndicatorIsWorking}
                     />
                   </span>
-                ) : detailed ? null : (
+                ) : (
                   <ThreadTrailingIndicator
                     {...trailingIndicatorState}
                     hideIdleDraftLabel={
@@ -709,18 +709,7 @@ function ThreadRowComponent({
   );
 
   const rowContent = detailed ? (
-    <DetailedThreadRow
-      thread={thread}
-      status={
-        <ThreadTrailingIndicator
-          {...trailingIndicatorState}
-          hideIdleDraftLabel={
-            !hasHiddenChildren && trailingIndicatorKind === "draft"
-          }
-          pluginStatus={pluginThreadRowStatus}
-        />
-      }
-    >
+    <DetailedThreadRow thread={thread}>
       {rowBody}
     </DetailedThreadRow>
   ) : (

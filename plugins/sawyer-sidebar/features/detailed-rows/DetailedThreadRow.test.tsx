@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup } from "@testing-library/react";
+import { cleanup, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { waitFor } from "@testing-library/react";
 import type {
   PluginSidebarPullRequest,
   PluginSidebarThread,
@@ -12,7 +11,8 @@ import { TooltipProvider } from "../../vendor/shared-ui/components/ui/tooltip.js
 import { makeSidebarThread } from "../../app/model/fixtures.js";
 import { toSidebarThread } from "../../app/model/sidebar-thread.js";
 import { ThreadRow } from "../../app/rows/ThreadRow.js";
-import { resetRepoAvatarsForTest } from "../repo-avatars/useRepoAvatar.js";
+import { resetSidebarInfoForTest } from "../sidebar-info/useSidebarInfo.js";
+import { shortBranchName } from "./DetailedThreadRow.js";
 
 function Harness({ thread }: { thread: PluginSidebarThread }) {
   return (
@@ -41,11 +41,13 @@ function renderRow({
   thread = makeSidebarThread(),
   pullRequest,
   avatars = {},
+  localHostId = null,
 }: {
   detailed: boolean;
   thread?: PluginSidebarThread;
   pullRequest?: PluginSidebarPullRequest;
   avatars?: Record<string, string | null>;
+  localHostId?: string | null;
 }) {
   return renderSlot(
     { component: Harness },
@@ -54,7 +56,7 @@ function renderRow({
       settings: { detailedRows: detailed },
       sidebarThreads: { threads: [thread], projects: [PROJECT] },
       sidebarPullRequests: pullRequest ? { [thread.id]: pullRequest } : {},
-      rpc: { repoAvatars: async () => ({ avatars }) },
+      rpc: { sidebarInfo: async () => ({ avatars, localHostId }) },
     },
   );
 }
@@ -67,13 +69,13 @@ function worktreeThread(
     environment: {
       id: "env_1",
       name: null,
-      branchName: "t3code/827fb93f",
+      branchName: "bb/make-the-sidebar-plugin-forkable-thr_tp8gpadn7t",
       path: "/work/bb",
       isWorktree: true,
       providerId: null,
       workspaceDisplayKind: null,
     },
-    host: { id: "host_bee", name: "bee" },
+    host: { id: "host_smoothbrain", name: "smoothbrain" },
     ...overrides,
   });
 }
@@ -83,55 +85,70 @@ const detail = (container: HTMLElement, part: string) =>
 
 afterEach(() => {
   cleanup();
-  resetRepoAvatarsForTest();
+  resetSidebarInfoForTest();
+});
+
+describe("shortBranchName", () => {
+  it("keeps the slug of a bb thread branch", () => {
+    expect(
+      shortBranchName("bb/clone-bb-sidebar-and-add-features-thr_b4ygfq2d3j"),
+    ).toBe("clone-bb-sidebar-and-add-features");
+  });
+
+  it.each(["main", "release/0.43.4", "bb/no-thread-id", "feature/x-thr_1"])(
+    "leaves %s alone",
+    (branch) => {
+      expect(shortBranchName(branch)).toBe(branch);
+    },
+  );
 });
 
 describe("detailed thread rows", () => {
   it("keeps the one-line row when detailed mode is off", () => {
     const { container } = renderRow({ detailed: false, thread: worktreeThread() });
-    expect(detail(container, "header")).toBeNull();
-    expect(detail(container, "footer")).toBeNull();
+    expect(detail(container, "meta")).toBeNull();
     expect(
       container.querySelector("[data-sidebar-thread-provider-icon]"),
     ).not.toBeNull();
   });
 
-  it("shows project, status, title, branch, machine, and provider", () => {
+  it("puts the title and status first, then project, branch, machine, and provider", () => {
     const { container } = renderRow({
       detailed: true,
       thread: worktreeThread({ status: "error" }),
     });
-    const header = detail(container, "header");
-    expect(header?.textContent).toBe("bb");
-    expect(
-      header?.querySelector('[aria-label="Unread thread failed"]'),
-    ).not.toBeNull();
     expect(container.querySelector(".bb-thread-title")).not.toBeNull();
-    expect(detail(container, "branch")?.textContent).toBe("t3code/827fb93f");
-    expect(detail(container, "machine")?.textContent).toBe("bee");
-    const provider = detail(container, "footer")?.querySelector(
-      "[data-sidebar-thread-provider-icon]",
-    );
-    expect(provider?.getAttribute("data-sidebar-thread-provider-icon")).toBe(
-      "codex",
-    );
-    // The status glyph moves to the header, so it is drawn only once.
     expect(
-      container.querySelectorAll("[data-sidebar-thread-trailing-indicator]"),
+      container.querySelector('[aria-label="Unread thread failed"]'),
+    ).not.toBeNull();
+    const meta = detail(container, "meta");
+    expect(meta?.querySelector('[aria-label="Unread thread failed"]')).toBeNull();
+    expect(detail(container, "project")?.textContent).toBe("bb");
+    expect(detail(container, "branch")?.textContent).toBe(
+      "make-the-sidebar-plugin-forkable",
+    );
+    expect(detail(container, "machine")?.textContent).toBe("smoothbrain");
+    expect(
+      meta
+        ?.querySelector("[data-sidebar-thread-provider-icon]")
+        ?.getAttribute("data-sidebar-thread-provider-icon"),
+    ).toBe("codex");
+    // Only one provider icon: the leading one is dropped in detailed mode.
+    expect(
+      container.querySelectorAll("[data-sidebar-thread-provider-icon]"),
     ).toHaveLength(1);
   });
 
-  it("shows the working glyph in the header while the agent runs", () => {
+  it("leaves out the machine bb runs on", async () => {
     const { container } = renderRow({
       detailed: true,
-      thread: worktreeThread({ status: "active", runtimeStatus: "active" }),
+      thread: worktreeThread(),
+      localHostId: "host_smoothbrain",
     });
-    expect(
-      detail(container, "header")?.querySelector('[aria-label="Thread working"]'),
-    ).not.toBeNull();
+    await waitFor(() => expect(detail(container, "machine")).toBeNull());
   });
 
-  it("shows the pull request instead of the branch when there is one", () => {
+  it("shows the pull request number instead of the branch", () => {
     const { container } = renderRow({
       detailed: true,
       thread: worktreeThread(),
@@ -144,33 +161,13 @@ describe("detailed thread rows", () => {
       },
     });
     expect(detail(container, "branch")).toBeNull();
-    expect(detail(container, "pull-request")?.textContent).toBe(
-      "#42 Detailed sidebar rows",
-    );
+    expect(detail(container, "pull-request")?.textContent).toBe("#42");
   });
 
   it("leaves out the branch and machine a thread does not have", () => {
-    const { container } = renderRow({
-      detailed: true,
-      thread: makeSidebarThread({ lastReadAt: 1, latestAttentionAt: 1 }),
-    });
+    const { container } = renderRow({ detailed: true });
     expect(detail(container, "branch")).toBeNull();
     expect(detail(container, "machine")).toBeNull();
-    expect(
-      container.querySelector("[data-sidebar-thread-trailing-indicator]"),
-    ).toBeNull();
-  });
-
-  it("lets the row link cover the whole card", () => {
-    const { container } = renderRow({ detailed: true, thread: worktreeThread() });
-    const link = container.querySelector("a[data-sidebar-thread-id]");
-    expect(link?.parentElement?.className).toContain("static");
-    expect(detail(container, "header")?.className).toContain(
-      "pointer-events-none",
-    );
-    expect(detail(container, "footer")?.className).toContain(
-      "pointer-events-none",
-    );
   });
 
   it("shows the repo owner's avatar for the project", async () => {
@@ -180,9 +177,18 @@ describe("detailed thread rows", () => {
       avatars: { proj_test: "https://avatars.githubusercontent.com/u/1?s=64" },
     });
     await waitFor(() =>
-      expect(
-        detail(container, "repo-avatar")?.getAttribute("src"),
-      ).toBe("https://avatars.githubusercontent.com/u/1?s=64"),
+      expect(detail(container, "repo-avatar")?.getAttribute("src")).toBe(
+        "https://avatars.githubusercontent.com/u/1?s=64",
+      ),
+    );
+  });
+
+  it("lets the row link cover the whole card", () => {
+    const { container } = renderRow({ detailed: true, thread: worktreeThread() });
+    const link = container.querySelector("a[data-sidebar-thread-id]");
+    expect(link?.parentElement?.className).toContain("static");
+    expect(detail(container, "meta")?.className).toContain(
+      "pointer-events-none",
     );
   });
 });

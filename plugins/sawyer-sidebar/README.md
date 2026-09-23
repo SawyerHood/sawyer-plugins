@@ -5,7 +5,7 @@ bb's built-in sidebar thread list, vendored into a plugin so it can grow feature
 What it adds:
 
 - **Provider icons.** Each thread row starts with its agent provider's icon (Claude Code, Codex, and so on), drawn from the same provider directory bb's pickers use.
-- **Detailed mode.** A setting that turns each row into a three-line card in the style of t3code: project (with the GitHub avatar of the repo's owner) and the thread's status glyph in the upper right, then the title, then the branch or pull request with the machine name and provider icon. Avatars come from GitHub's API on the plugin server, follow repo transfers, and are cached for a week; set `GITHUB_TOKEN` for private repos or higher rate limits. Turn it on under **Settings → Plugins → Sawyer Sidebar**, or with `bb plugin config sawyer-sidebar set detailedRows true`.
+- **Detailed mode.** A setting that turns each row into a two-line card: the title with its status glyph, then a quieter line with the GitHub avatar of the repo's owner, the project, the branch (without bb's `bb/` prefix and thread-id suffix) or pull request number, the machine when it isn't the one bb runs on, and the provider icon. Avatars come from GitHub's API on the plugin server, follow repo transfers, and are cached for a week; set `GITHUB_TOKEN` for private repos or higher rate limits. Turn it on under **Settings → Plugins → Sawyer Sidebar**, or with `bb plugin config sawyer-sidebar set detailedRows true`.
 
 ## Install
 

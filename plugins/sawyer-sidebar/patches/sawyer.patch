@@ -52,7 +52,7 @@ index 775aab5..d0a9154 100644
      const withStatus = renderThreadRow({
        hasComposerDraft: true,
 diff --git a/app/rows/ThreadRow.tsx b/app/rows/ThreadRow.tsx
-index bb203e0..026dd37 100644
+index bb203e0..7595cfd 100644
 --- a/app/rows/ThreadRow.tsx
 +++ b/app/rows/ThreadRow.tsx
 @@ -43,6 +43,12 @@ import {
@@ -116,32 +116,12 @@ index bb203e0..026dd37 100644
          <span
            className={cn(
              "pointer-events-none relative flex min-w-0 items-center self-stretch",
-@@ -652,7 +663,7 @@ function ThreadRowComponent({
-                       isWorking={splitIndicatorIsWorking}
-                     />
-                   </span>
--                ) : (
-+                ) : detailed ? null : (
-                   <ThreadTrailingIndicator
-                     {...trailingIndicatorState}
-                     hideIdleDraftLabel={
-@@ -697,6 +708,25 @@ function ThreadRowComponent({
+@@ -697,6 +708,14 @@ function ThreadRowComponent({
      </>
    );
  
 +  const rowContent = detailed ? (
-+    <DetailedThreadRow
-+      thread={thread}
-+      status={
-+        <ThreadTrailingIndicator
-+          {...trailingIndicatorState}
-+          hideIdleDraftLabel={
-+            !hasHiddenChildren && trailingIndicatorKind === "draft"
-+          }
-+          pluginStatus={pluginThreadRowStatus}
-+        />
-+      }
-+    >
++    <DetailedThreadRow thread={thread}>
 +      {rowBody}
 +    </DetailedThreadRow>
 +  ) : (
@@ -152,7 +132,7 @@ index bb203e0..026dd37 100644
      children: rowContent,
      className: rowClassName,
 diff --git a/server.ts b/server.ts
-index 57fe117..10b4b0d 100644
+index 57fe117..39556db 100644
 --- a/server.ts
 +++ b/server.ts
 @@ -6,6 +6,8 @@ import {
@@ -160,7 +140,7 @@ index 57fe117..10b4b0d 100644
  } from "@get-bb/plugin-sdk";
  import { z } from "zod";
 +import { defineSawyerSidebarSettings } from "./features/detailed-rows/settings.js";
-+import { registerRepoAvatars } from "./features/repo-avatars/server.js";
++import { registerSidebarInfo } from "./features/sidebar-info/server.js";
  import {
    defaultPreferences,
    describePreference,
@@ -169,7 +149,7 @@ index 57fe117..10b4b0d 100644
  
  export default async function threadListPlugin(bb: BbPluginApi) {
 +  defineSawyerSidebarSettings(bb);
-+  registerRepoAvatars(bb);
++  registerSidebarInfo(bb);
    const store = createPreferenceStore(bb);
  
    bb.rpc.register(threadListRpcContract, {

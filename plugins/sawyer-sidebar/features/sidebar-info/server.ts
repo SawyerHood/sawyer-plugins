@@ -1,12 +1,18 @@
+import { hostname } from "node:os";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { parseGitHubRemote } from "./github-remote.js";
 
-export const repoAvatarsRpcContract = defineRpcContract({
-  repoAvatars: {
+export const sidebarInfoRpcContract = defineRpcContract({
+  sidebarInfo: {
     input: z.null(),
     output: z
-      .object({ avatars: z.record(z.string(), z.string().nullable()) })
+      .object({
+        /** Project id → the GitHub avatar of its repo's owner, or null. */
+        avatars: z.record(z.string(), z.string().nullable()),
+        /** The machine bb's server runs on, when it can be matched by name. */
+        localHostId: z.string().nullable(),
+      })
       .strict(),
   },
 });
@@ -51,7 +57,26 @@ async function fetchOwnerAvatar(owner: string, repo: string): Promise<string | n
   return typeof avatarUrl === "string" ? sizedAvatarUrl(avatarUrl) : null;
 }
 
-export function registerRepoAvatars(bb: BbPluginApi): void {
+/**
+ * bb does not mark which machine is the server's own, so match this process's
+ * hostname against the machine names. Null when none matches.
+ */
+async function findLocalHostId(bb: BbPluginApi): Promise<string | null> {
+  const name = hostname().toLowerCase();
+  const short = name.split(".")[0];
+  try {
+    const hosts = await bb.sdk.hosts.list();
+    const match = hosts.find((host) => {
+      const candidate = host.name.toLowerCase();
+      return candidate === name || candidate === short;
+    });
+    return match?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function registerSidebarInfo(bb: BbPluginApi): void {
   const inFlight = new Map<string, Promise<string>>();
 
   async function avatarFor(owner: string, repo: string): Promise<string> {
@@ -87,9 +112,12 @@ export function registerRepoAvatars(bb: BbPluginApi): void {
     return lookup;
   }
 
-  bb.rpc.register(repoAvatarsRpcContract, {
-    async repoAvatars() {
-      const projects = await bb.sdk.projects.list();
+  bb.rpc.register(sidebarInfoRpcContract, {
+    async sidebarInfo() {
+      const [projects, localHostId] = await Promise.all([
+        bb.sdk.projects.list(),
+        findLocalHostId(bb),
+      ]);
       const entries = await Promise.all(
         projects.map(async (project) => {
           const remote = parseGitHubRemote(project.gitRemoteUrl);
@@ -97,7 +125,7 @@ export function registerRepoAvatars(bb: BbPluginApi): void {
           return [project.id, await avatarFor(remote.owner, remote.repo)] as const;
         }),
       );
-      return { avatars: Object.fromEntries(entries) };
+      return { avatars: Object.fromEntries(entries), localHostId };
     },
   });
 }
