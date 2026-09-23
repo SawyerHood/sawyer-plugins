@@ -185,11 +185,4 @@ describe("detailed thread rows", () => {
       ).toBe("https://avatars.githubusercontent.com/u/1?s=64"),
     );
   });
-
-  it("draws a divider under each card", () => {
-    const { container } = renderRow({ detailed: true, thread: worktreeThread() });
-    expect(
-      container.querySelector("[data-sidebar-thread-divider]"),
-    ).not.toBeNull();
-  });
 });

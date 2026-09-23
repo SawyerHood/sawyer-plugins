@@ -144,11 +144,6 @@ export function DetailedThreadRow({
         ) : null}
         <ThreadProviderIcon providerId={thread.providerId} />
       </span>
-      <span
-        aria-hidden
-        data-sidebar-thread-divider=""
-        className="pointer-events-none absolute inset-x-2 -bottom-[2px] h-px bg-border-hairline"
-      />
     </>
   );
 }
