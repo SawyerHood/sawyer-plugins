@@ -28,7 +28,7 @@ export function useDetailedRows(): boolean {
  * without margins, which the windowed list would not measure.
  */
 const DETAILED_ROW_CLASS =
-  "h-auto flex-col items-stretch gap-0.5 border-y-2 border-transparent bg-clip-padding py-1.5 pr-2.5";
+  "h-auto flex-col items-stretch gap-px border-y border-transparent bg-clip-padding py-1 pr-2.5";
 
 /**
  * Card classes for one row. A parent with its children showing and each child
@@ -44,8 +44,8 @@ export function detailedRowClass({
 }): string {
   return [
     DETAILED_ROW_CLASS,
-    isChild && "border-t-0 pt-1",
-    hasOpenChildren && "border-b-0 pb-1",
+    isChild && "border-t-0 pt-0.5",
+    hasOpenChildren && "border-b-0 pb-0.5",
   ]
     .filter(Boolean)
     .join(" ");
@@ -151,7 +151,9 @@ export function DetailedThreadRow({ thread, children }: DetailedThreadRowProps) 
   const machineName = useRemoteMachineName(thread);
   return (
     <>
-      <span className="flex min-w-0 items-center gap-2 font-medium">
+      {/* Hold the title line to its text height; the 28px row-action box
+          overhangs it, centered, instead of stretching the card. */}
+      <span className="flex h-5 min-w-0 items-center gap-2 font-medium">
         {children}
       </span>
       <span
