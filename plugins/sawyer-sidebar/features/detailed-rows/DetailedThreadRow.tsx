@@ -37,10 +37,10 @@ const HOVER_ACTIONS_FIT_TITLE_LINE_CLASS =
  *
  * The padding is uneven on purpose so the ink is even: the title's line box
  * leaves room above its capitals, while the detail line's icons fill theirs,
- * so no padding on top and 5px below put both 6px from the card's edge.
+ * so 2px on top and 7px below put both 8px from the card's edge.
  */
 const DETAILED_ROW_CLASS = [
-  "h-auto flex-col items-stretch gap-px border-y border-transparent bg-clip-padding pt-0 pb-[5px] pr-2.5",
+  "h-auto flex-col items-stretch gap-0.5 border-y-2 border-transparent bg-clip-padding pt-0.5 pb-[7px] pr-2.5",
   HOVER_ACTIONS_FIT_TITLE_LINE_CLASS,
 ].join(" ");
 
