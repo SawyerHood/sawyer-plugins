@@ -26,9 +26,13 @@ export function useDetailedRows(): boolean {
  * line. The transparent top and bottom borders, with the background clipped to
  * the padding box, leave a gap between neighbouring cards' hover and selection
  * without margins, which the windowed list would not measure.
+ *
+ * The padding is uneven on purpose so the ink is even: the title's line box
+ * leaves room above its capitals, while the detail line's icons fill theirs,
+ * so no padding on top and 5px below put both 6px from the card's edge.
  */
 const DETAILED_ROW_CLASS =
-  "h-auto flex-col items-stretch gap-px border-y border-transparent bg-clip-padding py-1 pr-2.5";
+  "h-auto flex-col items-stretch gap-px border-y border-transparent bg-clip-padding pt-0 pb-[5px] pr-2.5";
 
 /**
  * Card classes for one row. A parent with its children showing and each child
@@ -44,7 +48,7 @@ export function detailedRowClass({
 }): string {
   return [
     DETAILED_ROW_CLASS,
-    isChild && "border-t-0 pt-0.5",
+    isChild && "border-t-0 pt-0",
     hasOpenChildren && "border-b-0 pb-0.5",
   ]
     .filter(Boolean)
