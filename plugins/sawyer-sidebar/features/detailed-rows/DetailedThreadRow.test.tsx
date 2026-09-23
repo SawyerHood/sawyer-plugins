@@ -12,7 +12,7 @@ import { makeSidebarThread } from "../../app/model/fixtures.js";
 import { toSidebarThread } from "../../app/model/sidebar-thread.js";
 import { ThreadRow } from "../../app/rows/ThreadRow.js";
 import { resetSidebarInfoForTest } from "../sidebar-info/useSidebarInfo.js";
-import { shortBranchName } from "./DetailedThreadRow.js";
+import { detailedRowClass, shortBranchName } from "./DetailedThreadRow.js";
 
 function Harness({ thread }: { thread: PluginSidebarThread }) {
   return (
@@ -101,6 +101,20 @@ describe("shortBranchName", () => {
       expect(shortBranchName(branch)).toBe(branch);
     },
   );
+});
+
+describe("detailedRowClass", () => {
+  it("drops the spacing between a parent with open children and its child", () => {
+    expect(detailedRowClass({ isChild: false, hasOpenChildren: true })).toContain(
+      "border-b-0",
+    );
+    expect(detailedRowClass({ isChild: true, hasOpenChildren: false })).toContain(
+      "border-t-0",
+    );
+    const standalone = detailedRowClass({ isChild: false, hasOpenChildren: false });
+    expect(standalone).not.toContain("border-t-0");
+    expect(standalone).not.toContain("border-b-0");
+  });
 });
 
 describe("detailed thread rows", () => {

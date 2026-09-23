@@ -27,8 +27,37 @@ export function useDetailedRows(): boolean {
  * the padding box, leave a gap between neighbouring cards' hover and selection
  * without margins, which the windowed list would not measure.
  */
-export const DETAILED_ROW_CLASS =
+const DETAILED_ROW_CLASS =
   "h-auto flex-col items-stretch gap-0.5 border-y-2 border-transparent bg-clip-padding py-1.5 pr-2.5";
+
+/**
+ * Card classes for one row. A parent with its children showing and each child
+ * give up the spacing between them, so a thread tree reads as one unit while
+ * separate threads keep their gap.
+ */
+export function detailedRowClass({
+  isChild,
+  hasOpenChildren,
+}: {
+  isChild: boolean;
+  hasOpenChildren: boolean;
+}): string {
+  return [
+    DETAILED_ROW_CLASS,
+    isChild && "border-t-0 pt-1",
+    hasOpenChildren && "border-b-0 pb-1",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * The title row centers its status glyph in the row-action box
+ * (`COARSE_POINTER_ROW_ACTION_SIZE_CLASS`: w-7, w-9 on coarse pointers). A slot
+ * of the same width puts the provider icon directly under the glyph.
+ */
+const PROVIDER_SLOT_CLASS =
+  "flex w-7 shrink-0 justify-center max-md:pointer-coarse:w-9";
 
 /**
  * bb names a thread's worktree branch `bb/<title-slug>-<thread id>`. The slug
@@ -153,7 +182,12 @@ export function DetailedThreadRow({ thread, children }: DetailedThreadRowProps) 
             <span className="truncate">{machineName}</span>
           </span>
         ) : null}
-        <ThreadProviderIcon providerId={thread.providerId} />
+        <span
+          data-sidebar-thread-detail="provider"
+          className={PROVIDER_SLOT_CLASS}
+        >
+          <ThreadProviderIcon providerId={thread.providerId} />
+        </span>
       </span>
     </>
   );

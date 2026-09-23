@@ -44,8 +44,8 @@ import {
   type PluginSidebarThreadRowStatus,
 } from "@get-bb/plugin-sdk/app";
 import {
-  DETAILED_ROW_CLASS,
   DetailedThreadRow,
+  detailedRowClass,
   useDetailedRows,
 } from "../../features/detailed-rows/DetailedThreadRow.js";
 import { ThreadProviderIcon } from "../../features/provider-icon/ThreadProviderIcon.js";
@@ -436,7 +436,10 @@ function ThreadRowComponent({
     LIST_HOVER_TRANSITION,
     parentOptions?.stickyLevel === undefined && "relative",
     detailed
-      ? DETAILED_ROW_CLASS
+      ? detailedRowClass({
+          isChild: thread.parentThreadId !== null,
+          hasOpenChildren: hasChildren && !isParentCollapsed,
+        })
       : options.isCompact
         ? COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS
         : COARSE_POINTER_ROW_HEIGHT_CLASS,
