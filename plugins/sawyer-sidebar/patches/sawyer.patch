@@ -52,24 +52,23 @@ index 775aab5..d0a9154 100644
      const withStatus = renderThreadRow({
        hasComposerDraft: true,
 diff --git a/app/rows/ThreadRow.tsx b/app/rows/ThreadRow.tsx
-index bb203e0..9624b92 100644
+index bb203e0..026dd37 100644
 --- a/app/rows/ThreadRow.tsx
 +++ b/app/rows/ThreadRow.tsx
-@@ -43,6 +43,13 @@ import {
+@@ -43,6 +43,12 @@ import {
    type PluginSidebarSplitPane,
    type PluginSidebarThreadRowStatus,
  } from "@get-bb/plugin-sdk/app";
 +import {
 +  DETAILED_ROW_CLASS,
 +  DetailedThreadRow,
-+  statusTextFor,
 +  useDetailedRows,
 +} from "../../features/detailed-rows/DetailedThreadRow.js";
 +import { ThreadProviderIcon } from "../../features/provider-icon/ThreadProviderIcon.js";
  import type { SidebarThread } from "../model/sidebar-thread.js";
  import { useSidebarProjectName } from "../model/use-sidebar-data.js";
  import { AppCommandShortcutPill } from "../ui/AppCommandShortcutPill.js";
-@@ -314,6 +321,7 @@ function ThreadRowComponent({
+@@ -314,6 +320,7 @@ function ThreadRowComponent({
    const [isDropdownActionsOpen, setIsDropdownActionsOpen] = useState(false);
    const [isContextActionsOpen, setIsContextActionsOpen] = useState(false);
    const actions = experimental_useSidebarThreadActions();
@@ -77,7 +76,7 @@ index bb203e0..9624b92 100644
    const shortcut = useSidebarThreadShortcut(thread.id);
    const pluginThreadRowStatus = useSidebarThreadRowStatus(thread.id);
    const { hasUnsubmittedDraft: hasComposerDraft } = useSidebarThreadDraft(
-@@ -428,9 +436,11 @@ function ThreadRowComponent({
+@@ -428,9 +435,11 @@ function ThreadRowComponent({
      SIDEBAR_ROW_BASE_CLASS,
      LIST_HOVER_TRANSITION,
      parentOptions?.stickyLevel === undefined && "relative",
@@ -92,7 +91,7 @@ index bb203e0..9624b92 100644
      showActive
        ? SIDEBAR_ROW_SELECTED_STATE_CLASS
        : SIDEBAR_ROW_INTERACTIVE_STATE_CLASS,
-@@ -468,7 +478,7 @@ function ThreadRowComponent({
+@@ -468,7 +477,7 @@ function ThreadRowComponent({
      },
      [],
    );
@@ -101,7 +100,7 @@ index bb203e0..9624b92 100644
      <>
        {parentOptions?.stickyLevel !== undefined && parentGuideLeft !== null ? (
          <span
-@@ -516,6 +526,7 @@ function ThreadRowComponent({
+@@ -516,6 +525,7 @@ function ThreadRowComponent({
        <span
          className={cn(
            "relative flex min-w-0 flex-1 items-center gap-1.5 self-stretch",
@@ -109,7 +108,7 @@ index bb203e0..9624b92 100644
            !shortcut &&
              !isEditing &&
              (parentOptions && hasChildren
-@@ -553,6 +564,7 @@ function ThreadRowComponent({
+@@ -553,6 +563,7 @@ function ThreadRowComponent({
            aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
            className="absolute inset-0 rounded-md outline-none"
          />
@@ -117,7 +116,7 @@ index bb203e0..9624b92 100644
          <span
            className={cn(
              "pointer-events-none relative flex min-w-0 items-center self-stretch",
-@@ -652,7 +664,7 @@ function ThreadRowComponent({
+@@ -652,7 +663,7 @@ function ThreadRowComponent({
                        isWorking={splitIndicatorIsWorking}
                      />
                    </span>
@@ -126,7 +125,7 @@ index bb203e0..9624b92 100644
                    <ThreadTrailingIndicator
                      {...trailingIndicatorState}
                      hideIdleDraftLabel={
-@@ -697,6 +709,22 @@ function ThreadRowComponent({
+@@ -697,6 +708,25 @@ function ThreadRowComponent({
      </>
    );
  
@@ -134,10 +133,13 @@ index bb203e0..9624b92 100644
 +    <DetailedThreadRow
 +      thread={thread}
 +      status={
-+        trailingIndicatorResolution.pluginStatusIsVisible &&
-+        pluginThreadRowStatus !== null
-+          ? { text: pluginThreadRowStatus.label, className: "text-muted-foreground" }
-+          : statusTextFor(trailingIndicatorKind)
++        <ThreadTrailingIndicator
++          {...trailingIndicatorState}
++          hideIdleDraftLabel={
++            !hasHiddenChildren && trailingIndicatorKind === "draft"
++          }
++          pluginStatus={pluginThreadRowStatus}
++        />
 +      }
 +    >
 +      {rowBody}

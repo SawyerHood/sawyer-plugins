@@ -46,7 +46,6 @@ import {
 import {
   DETAILED_ROW_CLASS,
   DetailedThreadRow,
-  statusTextFor,
   useDetailedRows,
 } from "../../features/detailed-rows/DetailedThreadRow.js";
 import { ThreadProviderIcon } from "../../features/provider-icon/ThreadProviderIcon.js";
@@ -713,10 +712,13 @@ function ThreadRowComponent({
     <DetailedThreadRow
       thread={thread}
       status={
-        trailingIndicatorResolution.pluginStatusIsVisible &&
-        pluginThreadRowStatus !== null
-          ? { text: pluginThreadRowStatus.label, className: "text-muted-foreground" }
-          : statusTextFor(trailingIndicatorKind)
+        <ThreadTrailingIndicator
+          {...trailingIndicatorState}
+          hideIdleDraftLabel={
+            !hasHiddenChildren && trailingIndicatorKind === "draft"
+          }
+          pluginStatus={pluginThreadRowStatus}
+        />
       }
     >
       {rowBody}

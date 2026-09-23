@@ -93,10 +93,11 @@ describe("detailed thread rows", () => {
       detailed: true,
       thread: worktreeThread({ status: "error" }),
     });
-    expect(detail(container, "header")?.textContent).toBe("bbFailed");
+    const header = detail(container, "header");
+    expect(header?.textContent).toBe("bb");
     expect(
-      container.querySelector("[data-sidebar-thread-status-text]")?.className,
-    ).toContain("text-destructive");
+      header?.querySelector('[aria-label="Unread thread failed"]'),
+    ).not.toBeNull();
     expect(container.querySelector(".bb-thread-title")).not.toBeNull();
     expect(detail(container, "branch")?.textContent).toBe("t3code/827fb93f");
     expect(detail(container, "machine")?.textContent).toBe("bee");
@@ -106,20 +107,20 @@ describe("detailed thread rows", () => {
     expect(provider?.getAttribute("data-sidebar-thread-provider-icon")).toBe(
       "codex",
     );
-    // The status moves to text, so the trailing glyph is not drawn twice.
+    // The status glyph moves to the header, so it is drawn only once.
     expect(
-      container.querySelector("[data-sidebar-thread-trailing-indicator]"),
-    ).toBeNull();
+      container.querySelectorAll("[data-sidebar-thread-trailing-indicator]"),
+    ).toHaveLength(1);
   });
 
-  it("says Working while the agent runs", () => {
+  it("shows the working glyph in the header while the agent runs", () => {
     const { container } = renderRow({
       detailed: true,
       thread: worktreeThread({ status: "active", runtimeStatus: "active" }),
     });
     expect(
-      container.querySelector("[data-sidebar-thread-status-text]")?.textContent,
-    ).toBe("Working");
+      detail(container, "header")?.querySelector('[aria-label="Thread working"]'),
+    ).not.toBeNull();
   });
 
   it("shows the pull request instead of the branch when there is one", () => {
@@ -148,7 +149,7 @@ describe("detailed thread rows", () => {
     expect(detail(container, "branch")).toBeNull();
     expect(detail(container, "machine")).toBeNull();
     expect(
-      container.querySelector("[data-sidebar-thread-status-text]"),
+      container.querySelector("[data-sidebar-thread-trailing-indicator]"),
     ).toBeNull();
   });
 

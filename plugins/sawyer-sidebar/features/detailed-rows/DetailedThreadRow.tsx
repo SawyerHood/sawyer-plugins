@@ -5,7 +5,6 @@ import {
   type PluginSidebarPullRequest,
 } from "@get-bb/plugin-sdk/app";
 import { Icon } from "../../vendor/shared-ui/components/ui/icon.js";
-import { cn } from "../../vendor/shared-ui/lib/utils.js";
 import type { SidebarThread } from "../../app/model/sidebar-thread.js";
 import {
   useSidebarData,
@@ -20,43 +19,6 @@ export function useDetailedRows(): boolean {
 
 /** Row classes for detailed mode: a padded column instead of a fixed-height line. */
 export const DETAILED_ROW_CLASS = "h-auto flex-col items-stretch gap-0.5 py-1.5";
-
-interface StatusText {
-  text: string;
-  className: string;
-}
-
-const MUTED = "text-muted-foreground";
-const ACTIVE = "text-sky-600 dark:text-sky-400";
-
-/** The t3code-style word shown in the card's upper right, per status. */
-const STATUS_TEXT: Record<string, StatusText | null> = {
-  "unread-error": { text: "Failed", className: "text-destructive" },
-  "queued-failed": { text: "Send failed", className: "text-destructive" },
-  "waiting-for-input": {
-    text: "Needs input",
-    className: "text-amber-600 dark:text-amber-400",
-  },
-  runtime: { text: "Working", className: ACTIVE },
-  "working-draft": { text: "Working", className: ACTIVE },
-  workflow: { text: "Workflow", className: ACTIVE },
-  "background-agent": { text: "Agents running", className: ACTIVE },
-  "background-command": { text: "Running", className: ACTIVE },
-  "plan-mode": { text: "Planning", className: ACTIVE },
-  goal: { text: "Goal", className: ACTIVE },
-  "queued-waiting": { text: "Queued", className: MUTED },
-  draft: { text: "Draft", className: MUTED },
-  "unread-success": {
-    text: "Completed",
-    className: "text-emerald-600 dark:text-emerald-400",
-  },
-  archived: { text: "Archived", className: MUTED },
-  none: null,
-};
-
-export function statusTextFor(indicatorKind: string): StatusText | null {
-  return STATUS_TEXT[indicatorKind] ?? null;
-}
 
 function pullRequestIcon(pullRequest: PluginSidebarPullRequest): string {
   if (pullRequest.state === "merged") return "GitMerge";
@@ -98,13 +60,14 @@ function BranchOrPullRequest({ thread }: { thread: SidebarThread }) {
 
 interface DetailedThreadRowProps {
   thread: SidebarThread;
-  status: StatusText | null;
+  /** The row's status glyph, drawn in the card's upper right. */
+  status: ReactNode;
   /** The regular row content: title, rename editor, and hover actions. */
   children: ReactNode;
 }
 
 /**
- * A three-line thread card in the style of t3code: project and status, then
+ * A three-line thread card in the style of t3code: project and status glyph, then
  * the regular title row, then branch or pull request with the machine and
  * provider. Only the title row takes pointer events; the row link underneath
  * covers the whole card, so a click anywhere opens the thread.
@@ -128,14 +91,7 @@ export function DetailedThreadRow({
       >
         <Icon name="Code" className="size-3 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1 truncate">{projectName ?? ""}</span>
-        {status !== null ? (
-          <span
-            data-sidebar-thread-status-text=""
-            className={cn("shrink-0 font-medium", status.className)}
-          >
-            {status.text}
-          </span>
-        ) : null}
+        {status}
       </span>
       <span className="flex min-w-0 items-center gap-2">{children}</span>
       <span
