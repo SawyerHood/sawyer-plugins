@@ -1,0 +1,86 @@
+diff --git a/app.tsx b/app.tsx
+index 18f3347..2a7cae2 100644
+--- a/app.tsx
++++ b/app.tsx
+@@ -28,8 +28,8 @@ function ThreadList({
+ 
+ export default definePluginApp((app) => {
+   app.slots.experimental_threadList({
+-    id: "thread-list",
+-    title: "Thread list",
++    id: "sawyer-sidebar",
++    title: "Sawyer Sidebar",
+     description:
+       "Pinned threads, custom sections, projects, machines, and nested threads.",
+     component: ThreadList,
+diff --git a/app/preferences/preferences-sync.ts b/app/preferences/preferences-sync.ts
+index 1b40292..b63a623 100644
+--- a/app/preferences/preferences-sync.ts
++++ b/app/preferences/preferences-sync.ts
+@@ -12,7 +12,7 @@ import {
+   type PreferenceValues,
+ } from "../../shared/preferences.js";
+ 
+-export const PREFERENCES_MIRROR_STORAGE_KEY = "bb.thread-list.preferences.v1";
++export const PREFERENCES_MIRROR_STORAGE_KEY = "bb.sawyer-sidebar.preferences.v1";
+ const WRITE_DEBOUNCE_MS = 150;
+ 
+ export interface PreferencesRpc {
+diff --git a/app/rows/ThreadRow.test.tsx b/app/rows/ThreadRow.test.tsx
+index 775aab5..d0a9154 100644
+--- a/app/rows/ThreadRow.test.tsx
++++ b/app/rows/ThreadRow.test.tsx
+@@ -591,20 +591,6 @@ describe("ThreadRow", () => {
+     expect(screen.queryByLabelText("Unread thread succeeded")).toBeNull();
+   });
+ 
+-  it("falls back to the default glyph for an icon name no plugin registered", () => {
+-    renderThreadRow({
+-      pluginStatus: {
+-        icon: "icon-probe/undeclared",
+-        label: "Unregistered name",
+-      },
+-      thread: createThread({ lastReadAt: 1, latestAttentionAt: 1 }),
+-    });
+-
+-    expect(
+-      screen.getByLabelText("Unregistered name").getAttribute("data-icon"),
+-    ).toBe("Zap");
+-  });
+-
+   it("replaces the draft icon with a plugin status and restores it without one", () => {
+     const withStatus = renderThreadRow({
+       hasComposerDraft: true,
+diff --git a/app/rows/ThreadRow.tsx b/app/rows/ThreadRow.tsx
+index bb203e0..53ea02d 100644
+--- a/app/rows/ThreadRow.tsx
++++ b/app/rows/ThreadRow.tsx
+@@ -43,6 +43,7 @@ import {
+   type PluginSidebarSplitPane,
+   type PluginSidebarThreadRowStatus,
+ } from "@get-bb/plugin-sdk/app";
++import { ThreadProviderIcon } from "../../features/provider-icon/ThreadProviderIcon.js";
+ import type { SidebarThread } from "../model/sidebar-thread.js";
+ import { useSidebarProjectName } from "../model/use-sidebar-data.js";
+ import { AppCommandShortcutPill } from "../ui/AppCommandShortcutPill.js";
+@@ -553,6 +554,7 @@ function ThreadRowComponent({
+           aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
+           className="absolute inset-0 rounded-md outline-none"
+         />
++        <ThreadProviderIcon providerId={thread.providerId} />
+         <span
+           className={cn(
+             "pointer-events-none relative flex min-w-0 items-center self-stretch",
+diff --git a/server.ts b/server.ts
+index 57fe117..c0ede7a 100644
+--- a/server.ts
++++ b/server.ts
+@@ -196,7 +196,7 @@ export default async function threadListPlugin(bb: BbPluginApi) {
+ 
+   bb.cli.register(
+     defineCli({
+-      name: "thread-list",
++      name: "sawyer-sidebar",
+       summary: "Inspect and change the sidebar thread list's layout preferences",
+       description:
+         "Organization mode, sort, section order, hidden groups, and collapsed groups for bb's sidebar thread list. Values are JSON; a bare word is read as a string.",

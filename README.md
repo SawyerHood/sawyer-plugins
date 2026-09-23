@@ -14,6 +14,7 @@ Sawyer Hood's [BB](https://getbb.app) plugins, in one repository. Every plugin l
 | Pokémon | [`plugins/pokemon`](plugins/pokemon) | Catch a random Pokémon every time you archive a thread, and fill out your Pokédex. |
 | Quick Chat | [`plugins/quick-chat`](plugins/quick-chat) | A floating chat window for quick, projectless questions. |
 | Quick Compose | [`plugins/quick-compose`](plugins/quick-compose) | A floating new-thread composer you can open from anywhere. |
+| Sawyer Sidebar | [`plugins/sawyer-sidebar`](plugins/sawyer-sidebar) | bb’s built-in sidebar thread list, vendored, with each thread’s agent provider icon on the left. |
 | SlopCop | [`plugins/slopcop`](plugins/slopcop) | Automated GitHub issue and PR rules that dispatch BB agents. |
 | T3 Sidebar | [`plugins/t3sidebar`](plugins/t3sidebar) | An inbox-style sidebar for BB threads. |
 

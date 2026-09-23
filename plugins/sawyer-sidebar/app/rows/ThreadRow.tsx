@@ -43,6 +43,7 @@ import {
   type PluginSidebarSplitPane,
   type PluginSidebarThreadRowStatus,
 } from "@get-bb/plugin-sdk/app";
+import { ThreadProviderIcon } from "../../features/provider-icon/ThreadProviderIcon.js";
 import type { SidebarThread } from "../model/sidebar-thread.js";
 import { useSidebarProjectName } from "../model/use-sidebar-data.js";
 import { AppCommandShortcutPill } from "../ui/AppCommandShortcutPill.js";
@@ -553,6 +554,7 @@ function ThreadRowComponent({
           aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
           className="absolute inset-0 rounded-md outline-none"
         />
+        <ThreadProviderIcon providerId={thread.providerId} />
         <span
           className={cn(
             "pointer-events-none relative flex min-w-0 items-center self-stretch",

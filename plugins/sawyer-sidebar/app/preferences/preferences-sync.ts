@@ -12,7 +12,7 @@ import {
   type PreferenceValues,
 } from "../../shared/preferences.js";
 
-export const PREFERENCES_MIRROR_STORAGE_KEY = "bb.thread-list.preferences.v1";
+export const PREFERENCES_MIRROR_STORAGE_KEY = "bb.sawyer-sidebar.preferences.v1";
 const WRITE_DEBOUNCE_MS = 150;
 
 export interface PreferencesRpc {
