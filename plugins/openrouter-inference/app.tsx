@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { definePluginApp, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { ServiceKind } from "./contract";
-import type { ModelOption, rpcContract, Status } from "./server";
+import type { ModelOption, rpcContract, Selection, Status } from "./server";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -48,6 +48,17 @@ function formatPrice(model: ModelOption): string {
 function formatContext(tokens: number | null): string | null {
   if (tokens === null) return null;
   return tokens >= 1_000_000 ? `${Math.round(tokens / 100_000) / 10}M ctx` : `${Math.round(tokens / 1000)}K ctx`;
+}
+
+/** What BB routes this kind to now, when it is not this plugin. */
+function describeSelection(selection: Selection): ReactNode {
+  if (selection.mode === "off") return <>Currently <strong>off</strong></>;
+  if (selection.mode === "automatic") return <>Currently <strong>automatic</strong></>;
+  return (
+    <>
+      Currently <span className="font-mono">{selection.serviceId}</span>
+    </>
+  );
 }
 
 function ServiceSettings({ kind }: { kind: ServiceKind }) {
@@ -110,8 +121,8 @@ function ServiceSettings({ kind }: { kind: ServiceKind }) {
     });
 
   const selectedId = kind === "voice" ? status?.transcriptionModel : status?.model;
-  const current = kind === "voice" ? status?.transcription : status?.inference;
-  const active = status !== null && current === status.serviceValue;
+  const current = status?.selection[kind];
+  const active = current?.selected === true;
   const selected = models?.find((model) => model.id === selectedId);
 
   return (
@@ -125,19 +136,11 @@ function ServiceSettings({ kind }: { kind: ServiceKind }) {
           {selected ? <span className="text-muted-foreground"> · {selected.name}</span> : null}
         </StatusRow>
         <StatusRow ok={active} label={service.label}>
-          {current === undefined ? (
-            "…"
-          ) : active ? (
-            "Served by this plugin"
-          ) : (
-            <>
-              Currently <span className="font-mono">{current}</span>
-            </>
-          )}
+          {current === undefined ? "…" : active ? "Served by this plugin" : describeSelection(current)}
         </StatusRow>
-        {status?.hostError ? (
+        {status?.serviceMessage ? (
           <p role="alert" className="text-destructive">
-            Could not sync the key to the host: {status.hostError}
+            {status.serviceMessage}
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
@@ -146,8 +149,8 @@ function ServiceSettings({ kind }: { kind: ServiceKind }) {
               disabled={pending !== null || status?.hasApiKey !== true}
               onClick={() =>
                 run("use", async () => {
-                  const result = await rpc.call("useFor", { kind });
-                  toast.success(`Now using ${result.value} for ${service.label.toLowerCase()}`);
+                  await rpc.call("useFor", { kind });
+                  toast.success(`Now using OpenRouter for ${service.label.toLowerCase()}`);
                 })
               }
             >

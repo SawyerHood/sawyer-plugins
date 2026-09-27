@@ -1,17 +1,13 @@
-// OpenRouter HTTP helpers shared by the server (model catalogs) and the host
-// (completions and transcriptions). Everything here is plain fetch plus pure
-// functions.
-import type {
-  ExperimentalAiInferenceCompleteInput,
-  ExperimentalAiInferenceCompleteOutput,
-  ExperimentalAiServiceErrorCode,
-  ExperimentalAiVoiceTranscribeInput,
-  ExperimentalAiVoiceTranscribeOutput,
-} from "@get-bb/plugin-sdk/ai-services";
+// OpenRouter HTTP helpers. Everything here is plain fetch plus pure functions;
+// BB 0.44 calls these from the plugin's server process, so no host tunnel is
+// involved.
 import { z } from "zod";
-import type { HostConfig, ReasoningParam, ServiceKind } from "./contract.js";
+import type { ReasoningParam, ServiceConfig, ServiceKind } from "./contract.js";
 
 export const OPENROUTER_API_BASE = "https://openrouter.ai/api/v1";
+
+/** BB stops waiting after 5s (titles) or 10s (voice); this is our own ceiling. */
+export const REQUEST_TIMEOUT_MS = 20_000;
 
 const REQUEST_HEADERS = {
   "HTTP-Referer": "https://getbb.app",
@@ -37,11 +33,6 @@ const rawModelSchema = z.object({
     .nullish(),
 });
 type RawModel = z.infer<typeof rawModelSchema>;
-type JsonObject = Extract<
-  ExperimentalAiInferenceCompleteOutput,
-  { ok: true }
->["value"];
-type AiServiceFailure = { ok: false; code: ExperimentalAiServiceErrorCode; message: string };
 
 export interface OpenRouterModel {
   id: string;
@@ -51,6 +42,13 @@ export interface OpenRouterModel {
   promptPrice: number | null;
   completionPrice: number | null;
   reasoning: ReasoningParam;
+}
+
+/** The audio as BB hands it to `transcribe`, base64-encoded for OpenRouter. */
+export interface AudioUpload {
+  base64: string;
+  filename: string;
+  mimeType: string;
 }
 
 /** The catalog's `output_modalities` filter for each kind; it lists only text models by default. */
@@ -126,69 +124,20 @@ export function reasoningParamFor(raw: RawModel): ReasoningParam {
   return { enabled: false };
 }
 
-/** OpenAI-style strict schemas need closed objects with every property required. */
-export function withStrictObjectSchemas(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(withStrictObjectSchemas);
-  if (value === null || typeof value !== "object") return value;
-  const normalized: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
-    normalized[key] = withStrictObjectSchemas(child);
-  }
-  if (normalized.type === "object") {
-    normalized.additionalProperties ??= false;
-    const properties = normalized.properties;
-    normalized.required =
-      properties !== null && typeof properties === "object"
-        ? Object.keys(properties)
-        : [];
-  }
-  return normalized;
-}
-
+/**
+ * BB owns the prompt and cleans the reply, so the request is a plain chat turn:
+ * the model returns text as-is.
+ */
 export function buildCompletionRequest(
-  input: Pick<ExperimentalAiInferenceCompleteInput, "prompt" | "outputSchema">,
-  config: Pick<HostConfig, "model" | "reasoning">,
+  prompt: string,
+  config: Pick<ServiceConfig, "model" | "reasoning">,
 ): Record<string, unknown> {
-  const schema = withStrictObjectSchemas(input.outputSchema);
   return {
     model: config.model,
-    messages: [
-      {
-        role: "system",
-        content:
-          "Follow the user prompt. Respond with only a JSON object that matches this JSON Schema, with no prose or code fences:\n" +
-          JSON.stringify(schema),
-      },
-      { role: "user", content: input.prompt },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: { name: "result", strict: true, schema },
-    },
+    messages: [{ role: "user", content: prompt }],
     ...(config.reasoning === null ? {} : { reasoning: config.reasoning }),
     stream: false,
   };
-}
-
-/** Parse the model's reply, tolerating code fences or stray prose around the object. */
-export function parseJsonObject(content: string): JsonObject | null {
-  const candidates = [content.trim()];
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/u.exec(content);
-  if (fenced?.[1]) candidates.push(fenced[1].trim());
-  const start = content.indexOf("{");
-  const end = content.lastIndexOf("}");
-  if (start !== -1 && end > start) candidates.push(content.slice(start, end + 1));
-  for (const candidate of candidates) {
-    try {
-      const value: unknown = JSON.parse(candidate);
-      if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-        return value as JsonObject;
-      }
-    } catch {
-      // Try the next candidate.
-    }
-  }
-  return null;
 }
 
 /** OpenRouter's `input_audio.format` names, keyed by file extension or MIME subtype. */
@@ -224,39 +173,32 @@ export function audioFormatFor(filename: string, mimeType: string): string {
 /** Whisper reads only the last 224 tokens of a prompt, and longer ones bill more input tokens. */
 const MAX_TRANSCRIPTION_PROMPT_CHARS = 1_000;
 
-/** BB's transcription context is the composer text before the cursor; keep its end, from a word boundary. */
+/** BB's transcription hint is vocabulary the speaker may use; keep its end, from a word boundary. */
 export function transcriptionPromptTail(prompt: string | null): string | null {
   const trimmed = prompt?.trim() ?? "";
   if (trimmed === "") return null;
   if (trimmed.length <= MAX_TRANSCRIPTION_PROMPT_CHARS) return trimmed;
   const tail = trimmed.slice(-MAX_TRANSCRIPTION_PROMPT_CHARS);
   const boundary = tail.search(/\s/u);
-  return (boundary === -1 ? tail : tail.slice(boundary)).trim();
+  return boundary === -1 ? tail : tail.slice(boundary).trim();
 }
 
 /**
- * OpenRouter's JSON transcription body has no prompt field, so the context
+ * OpenRouter's JSON transcription body has no prompt field, so the hint
  * goes under `provider.options` for the providers whose transcription APIs
  * take one. OpenRouter forwards only the serving provider's options.
  */
 export function buildTranscriptionRequest(
-  input: Pick<ExperimentalAiVoiceTranscribeInput, "audioBase64" | "filename" | "mimeType" | "prompt">,
-  config: Pick<HostConfig, "transcriptionModel">,
+  audio: AudioUpload,
+  prompt: string | null,
+  config: Pick<ServiceConfig, "transcriptionModel">,
 ): Record<string, unknown> {
-  const prompt = transcriptionPromptTail(input.prompt);
+  const tail = transcriptionPromptTail(prompt);
   return {
     model: config.transcriptionModel,
-    input_audio: { data: input.audioBase64, format: audioFormatFor(input.filename, input.mimeType) },
-    ...(prompt === null ? {} : { provider: { options: { openai: { prompt }, groq: { prompt } } } }),
+    input_audio: { data: audio.base64, format: audioFormatFor(audio.filename, audio.mimeType) },
+    ...(tail === null ? {} : { provider: { options: { openai: { prompt: tail }, groq: { prompt: tail } } } }),
   };
-}
-
-export function errorCodeForStatus(status: number): ExperimentalAiServiceErrorCode {
-  if (status === 401 || status === 403) return "auth_required";
-  if (status === 402 || status === 429) return "rate_limited";
-  if (status === 408) return "timeout";
-  if (status >= 500) return "service_unavailable";
-  return "request_failed";
 }
 
 /** OpenRouter error bodies carry the upstream HTTP status in `code`. */
@@ -264,14 +206,14 @@ const errorBodySchema = z.object({
   error: z.object({ code: z.unknown().optional(), message: z.string().optional() }),
 });
 
-/** POST JSON to OpenRouter, mapping transport failures and error replies to BB's AI-service codes. */
+/** POST JSON to OpenRouter. Transport failures and error replies throw. */
 async function postToOpenRouter(
   path: string,
   request: Record<string, unknown>,
   apiKey: string,
   timeoutMs: number,
   signal: AbortSignal,
-): Promise<{ ok: true; body: unknown } | AiServiceFailure> {
+): Promise<unknown> {
   const timeout = AbortSignal.timeout(timeoutMs);
   let response: Response;
   let text: string;
@@ -289,9 +231,9 @@ async function postToOpenRouter(
     text = await response.text();
   } catch (error) {
     if (timeout.aborted) {
-      return failure("timeout", `OpenRouter did not answer within ${timeoutMs}ms`);
+      throw new Error(`OpenRouter did not answer within ${timeoutMs}ms`);
     }
-    return failure("service_unavailable", `OpenRouter request failed: ${messageOf(error)}`);
+    throw new Error(`OpenRouter request failed: ${messageOf(error)}`);
   }
 
   let body: unknown = null;
@@ -303,25 +245,18 @@ async function postToOpenRouter(
   const errorBody = errorBodySchema.safeParse(body);
   if (!response.ok) {
     const detail = errorBody.data?.error.message ?? text.slice(0, 300);
-    return failure(
-      errorCodeForStatus(response.status),
-      `OpenRouter HTTP ${response.status}: ${detail || response.statusText}`,
-    );
+    throw new Error(`OpenRouter HTTP ${response.status}: ${detail || response.statusText}`);
   }
   // Failures after OpenRouter has sent its 200 headers, such as provider rate
   // limits, arrive as a 200 with an error body.
   if (errorBody.success) {
-    const { code, message } = errorBody.data.error;
-    return failure(
-      typeof code === "number" ? errorCodeForStatus(code) : "request_failed",
-      `OpenRouter error: ${message ?? "unknown"}`,
-    );
+    const { message } = errorBody.data.error;
+    throw new Error(`OpenRouter error: ${message ?? "unknown"}`);
   }
-  return { ok: true, body };
+  return body;
 }
 
 const completionResponseSchema = z.object({
-  model: z.string().optional(),
   choices: z
     .array(
       z.object({
@@ -331,56 +266,50 @@ const completionResponseSchema = z.object({
     .optional(),
 });
 
+/** One helper completion. Returns the model's text, which BB cleans. */
 export async function completeWithOpenRouter(
-  input: ExperimentalAiInferenceCompleteInput,
-  config: HostConfig,
+  prompt: string,
+  config: ServiceConfig,
   signal: AbortSignal,
-): Promise<ExperimentalAiInferenceCompleteOutput> {
-  const reply = await postToOpenRouter(
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<string> {
+  const body = await postToOpenRouter(
     "/chat/completions",
-    buildCompletionRequest(input, config),
+    buildCompletionRequest(prompt, config),
     config.apiKey,
-    input.timeoutMs,
+    timeoutMs,
     signal,
   );
-  if (!reply.ok) return reply;
-  const body = completionResponseSchema.safeParse(reply.body).data;
-  const content = body?.choices?.[0]?.message?.content;
-  const value = content ? parseJsonObject(content) : null;
-  if (value === null) {
-    return failure(
-      "invalid_response",
-      `${config.model} did not return a JSON object${content ? `: ${content.slice(0, 200)}` : ""}`,
-    );
+  const content = completionResponseSchema.safeParse(body).data?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error(`${config.model} returned no completion text`);
   }
-  return { ok: true, model: body?.model ?? config.model, value };
+  return content.trim();
 }
 
 const transcriptionResponseSchema = z.object({ text: z.string() });
 
+/** One voice transcription. Returns the trimmed transcript. */
 export async function transcribeWithOpenRouter(
-  input: ExperimentalAiVoiceTranscribeInput,
-  config: HostConfig,
+  audio: AudioUpload,
+  config: ServiceConfig,
   signal: AbortSignal,
-): Promise<ExperimentalAiVoiceTranscribeOutput> {
-  const reply = await postToOpenRouter(
+  prompt: string | null = null,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<string> {
+  const body = await postToOpenRouter(
     "/audio/transcriptions",
-    buildTranscriptionRequest(input, config),
+    buildTranscriptionRequest(audio, prompt, config),
     config.apiKey,
-    input.timeoutMs,
+    timeoutMs,
     signal,
   );
-  if (!reply.ok) return reply;
-  const body = transcriptionResponseSchema.safeParse(reply.body);
-  if (!body.success) {
-    return failure("invalid_response", `${config.transcriptionModel} did not return a transcript`);
+  const parsed = transcriptionResponseSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new Error(`${config.transcriptionModel} did not return a transcript`);
   }
   // Whisper-family models start their transcripts with a space.
-  return { ok: true, model: config.transcriptionModel, text: body.data.text.trim() };
-}
-
-export function failure(code: ExperimentalAiServiceErrorCode, message: string): AiServiceFailure {
-  return { ok: false, code, message };
+  return parsed.data.text.trim();
 }
 
 function messageOf(error: unknown): string {

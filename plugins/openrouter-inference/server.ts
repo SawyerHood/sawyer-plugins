@@ -1,31 +1,34 @@
 // OpenRouter Inference — serves BB's helper completions (thread titles and
 // commit messages) and voice transcription with an OpenRouter API key and
-// models picked in settings.
-import { randomUUID } from "node:crypto";
-import { readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+// models picked in settings. BB 0.44 runs both functions in this process, so
+// the key never leaves the server.
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
+  DEFAULT_MODEL,
   DEFAULT_TRANSCRIPTION_MODEL,
-  hostContract,
   SERVICE_ID,
-  SERVICE_SETTING_VALUE,
   serviceKindSchema,
-  type HostConfig,
+  TASKS,
+  type ServiceConfig,
   type ServiceKind,
 } from "./contract.js";
-import { fetchOpenRouterModels, type OpenRouterModel } from "./openrouter.js";
+import {
+  completeWithOpenRouter,
+  fetchOpenRouterModels,
+  REQUEST_TIMEOUT_MS,
+  transcribeWithOpenRouter,
+  type AudioUpload,
+  type OpenRouterModel,
+} from "./openrouter.js";
+import { TEST_CLIP } from "./test-audio.js";
 
-const DEFAULT_MODEL = "google/gemini-2.5-flash-lite";
 const MODEL_CACHE_MS = 10 * 60_000;
 const STATE_CHANGED = "state-changed";
+const NOT_CONFIGURED = "Add an OpenRouter API key in the OpenRouter Inference plugin settings.";
 
-/** The BB config key that selects the service for each kind. */
-const CONFIG_KEYS: Record<ServiceKind, "BB_INFERENCE" | "BB_TRANSCRIPTION"> = {
-  inference: "BB_INFERENCE",
-  voice: "BB_TRANSCRIPTION",
-};
+const TEST_TITLE_PROMPT =
+  'Write a short title (at most 6 words) for a coding thread that starts with: "Add an OpenRouter plugin that generates thread titles and commit messages."';
 
 const modelSchema = z.object({
   id: z.string(),
@@ -36,15 +39,24 @@ const modelSchema = z.object({
 });
 export type ModelOption = z.infer<typeof modelSchema>;
 
+/** What BB currently routes one kind to, and whether that is this plugin. */
+const selectionSchema = z
+  .object({
+    mode: z.enum(["automatic", "off", "service"]),
+    /** The selected service's id, when `mode` is "service". */
+    serviceId: z.string().nullable(),
+    selected: z.boolean(),
+  })
+  .strict();
+export type Selection = z.infer<typeof selectionSchema>;
+
 const statusSchema = z.object({
   hasApiKey: z.boolean(),
   model: z.string(),
   transcriptionModel: z.string(),
-  /** The running server's BB_INFERENCE and BB_TRANSCRIPTION. */
-  inference: z.string(),
-  transcription: z.string(),
-  serviceValue: z.string(),
-  hostError: z.string().nullable(),
+  selection: z.object({ inference: selectionSchema, voice: selectionSchema }).strict(),
+  /** Why BB would refuse this service, or null when it is ready. */
+  serviceMessage: z.string().nullable(),
 });
 export type Status = z.infer<typeof statusSchema>;
 
@@ -60,7 +72,7 @@ export const rpcContract = defineRpcContract({
   },
   useFor: {
     input: z.object({ kind: serviceKindSchema }).strict(),
-    output: z.object({ value: z.string() }),
+    output: z.object({ selection: selectionSchema }),
   },
   test: {
     input: z.object({ kind: serviceKindSchema }).strict(),
@@ -72,13 +84,16 @@ export const rpcContract = defineRpcContract({
   },
 });
 
-export default async function plugin(bb: BbPluginApi) {
-  bb.experimental_aiServices.register({
-    id: SERVICE_ID,
-    displayName: "OpenRouter (API key)",
-    kinds: ["inference", "voice"],
-  });
+/** Base64-encode the audio BB hands to `transcribe`, keeping its name and MIME type. */
+async function audioUpload(audio: File): Promise<AudioUpload> {
+  return {
+    base64: Buffer.from(await audio.arrayBuffer()).toString("base64"),
+    filename: audio.name,
+    mimeType: audio.type,
+  };
+}
 
+export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
     apiKey: {
       type: "string",
@@ -102,8 +117,6 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
-  const host = bb.hosts.experimental_client({ contract: hostContract });
-
   const modelCaches = new Map<ServiceKind, { models: OpenRouterModel[]; fetchedAt: number }>();
   async function listModels(kind: ServiceKind, refresh: boolean): Promise<OpenRouterModel[]> {
     const cached = modelCaches.get(kind);
@@ -115,10 +128,11 @@ export default async function plugin(bb: BbPluginApi) {
     return models;
   }
 
-  async function buildHostConfig(): Promise<HostConfig | null> {
+  /** The key and models every request uses, or null while the key is missing. */
+  async function buildConfig(): Promise<ServiceConfig | null> {
     const { apiKey, model, transcriptionModel } = await settings.get();
     if (typeof apiKey !== "string" || apiKey.trim() === "") return null;
-    let reasoning: HostConfig["reasoning"] = null;
+    let reasoning: ServiceConfig["reasoning"] = null;
     try {
       reasoning = (await listModels("inference", false)).find((entry) => entry.id === model)?.reasoning ?? null;
     } catch (error) {
@@ -127,147 +141,104 @@ export default async function plugin(bb: BbPluginApi) {
     return { apiKey: apiKey.trim(), model, reasoning, transcriptionModel };
   }
 
-  // Mirrors core's primary-host resolution: helper inference and plugin-served
-  // transcription always run there.
-  async function primaryHostId(): Promise<string> {
-    try {
-      const id = (await readFile(join(bb.server.experimental_dataDir, "host-id"), "utf8")).trim();
-      if (id !== "") return id;
-    } catch {
-      // Fall through to the enrolled hosts.
-    }
-    const hosts = await bb.sdk.hosts.list();
-    const connected = hosts.filter((entry) => entry.status === "connected");
-    const only = connected.length === 1 ? connected[0] : hosts.length === 1 ? hosts[0] : undefined;
-    if (!only) throw new Error("Could not determine the primary host");
-    return only.id;
+  async function requireConfig(): Promise<ServiceConfig> {
+    const config = await buildConfig();
+    if (config === null) throw new Error(NOT_CONFIGURED);
+    return config;
   }
 
-  let hostError: string | null = null;
-  let requestSync = () => {};
+  /** One sample title or one sample transcript, with the models now in settings. */
+  async function runTest(kind: ServiceKind): Promise<{ text: string; model: string; durationMs: number }> {
+    const config = await requireConfig();
+    const startedAt = Date.now();
+    if (kind === "voice") {
+      const text = await transcribeWithOpenRouter(
+        {
+          base64: TEST_CLIP.base64,
+          filename: TEST_CLIP.filename,
+          mimeType: TEST_CLIP.mimeType,
+        },
+        config,
+        new AbortController().signal,
+        null,
+        REQUEST_TIMEOUT_MS,
+      );
+      return { text, model: config.transcriptionModel, durationMs: Date.now() - startedAt };
+    }
+    const text = await completeWithOpenRouter(TEST_TITLE_PROMPT, config, new AbortController().signal);
+    return { text, model: config.model, durationMs: Date.now() - startedAt };
+  }
 
-  // Keep the primary host's copy of the key and models current. Retries with
-  // backoff while the host is offline; settings changes wake it immediately.
-  bb.background.service("host-sync", {
-    async start(signal) {
-      let dirty = true;
-      let failures = 0;
-      let wake: (() => void) | null = null;
-      requestSync = () => {
-        dirty = true;
-        wake?.();
-      };
-      while (!signal.aborted) {
-        if (dirty) {
-          dirty = false;
-          try {
-            const hostId = await primaryHostId();
-            await host.call("configure", { config: await buildHostConfig() }, { hostId, signal });
-            hostError = null;
-            failures = 0;
-          } catch (error) {
-            if (signal.aborted) break;
-            hostError = messageOf(error);
-            bb.log.warn(`host sync failed: ${hostError}`);
-            failures += 1;
-          }
-          bb.realtime.publish(STATE_CHANGED, {});
-        }
-        // A settings change during the sync already marked it dirty again.
-        if (dirty) continue;
-        await new Promise<void>((resolve) => {
-          const done = () => {
-            clearTimeout(timer);
-            signal.removeEventListener("abort", done);
-            wake = null;
-            resolve();
-          };
-          const timer =
-            failures > 0 ? setTimeout(done, Math.min(5_000 * 2 ** (failures - 1), 60_000)) : undefined;
-          wake = done;
-          signal.addEventListener("abort", done, { once: true });
-        });
-        if (failures > 0) dirty = true;
-      }
+  bb.experimental_aiServices.register({
+    id: SERVICE_ID,
+    displayName: "OpenRouter (API key)",
+    status: async () => {
+      const { apiKey } = await settings.get();
+      return typeof apiKey === "string" && apiKey.trim() !== ""
+        ? { ready: true }
+        : { ready: false, message: NOT_CONFIGURED };
     },
+    complete: async (prompt, { signal }) => completeWithOpenRouter(prompt, await requireConfig(), signal),
+    transcribe: async (audio, { signal, hint }) =>
+      transcribeWithOpenRouter(await audioUpload(audio), await requireConfig(), signal, hint),
   });
 
-  settings.onChange(() => requestSync());
+  // The settings UI shows what BB routes each kind to, so refresh it on change.
+  settings.onChange(() => bb.realtime.publish(STATE_CHANGED, {}));
 
-  // BB_INFERENCE and BB_TRANSCRIPTION live in BB's managed config.json. Write
-  // them the way the bb-app launcher does (merge, temp file, rename), then
-  // reload the server.
-  async function selectService(kind: ServiceKind): Promise<string> {
-    const dataDir = bb.server.experimental_dataDir;
-    const configPath = join(dataDir, "config.json");
-    let current: Record<string, unknown> = {};
-    try {
-      const parsed: unknown = JSON.parse(await readFile(configPath, "utf8"));
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error(`${configPath} is not a JSON object`);
-      }
-      current = parsed as Record<string, unknown>;
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-    }
-    const managed = current.config;
-    const next = {
-      ...current,
-      config: {
-        ...(managed !== null && typeof managed === "object" ? managed : {}),
-        [CONFIG_KEYS[kind]]: SERVICE_SETTING_VALUE,
-      },
+  /** Read BB's current selection for one kind, and whether it points at this plugin. */
+  async function selectionFor(kind: ServiceKind): Promise<Selection> {
+    const { selections, services } = await bb.sdk.system.aiServices();
+    const tasks = TASKS[kind];
+    const mine = services.filter(
+      (service) => service.id === SERVICE_ID && tasks.every((task) => service.tasks.includes(task)),
+    );
+    const chosen = selections[tasks[0]];
+    const pointsHere = (task: (typeof tasks)[number]) => {
+      const entry = selections[task];
+      return entry.mode === "service" && entry.serviceId === SERVICE_ID;
     };
-    const tempPath = join(dataDir, `.config.json.${process.pid}.${randomUUID()}.tmp`);
-    try {
-      await writeFile(tempPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-      await rename(tempPath, configPath);
-    } catch (error) {
-      await unlink(tempPath).catch(() => undefined);
-      throw error;
-    }
-    await bb.sdk.system.reloadConfig();
-    const { aiServices } = await bb.sdk.system.config();
-    return kind === "voice" ? aiServices.transcription : aiServices.inference;
+    const selected = mine.length > 0 && tasks.every(pointsHere);
+    if (chosen.mode !== "service") return { mode: chosen.mode, serviceId: null, selected };
+    return { mode: "service", serviceId: chosen.serviceId, selected };
   }
 
   bb.rpc.register(rpcContract, {
     status: async () => {
       const { apiKey, model, transcriptionModel } = await settings.get();
-      const { aiServices } = await bb.sdk.system.config();
+      const { services } = await bb.sdk.system.aiServices();
+      const service = services.find((entry) => entry.id === SERVICE_ID);
       return {
         hasApiKey: typeof apiKey === "string" && apiKey.trim() !== "",
         model,
         transcriptionModel,
-        inference: aiServices.inference,
-        transcription: aiServices.transcription,
-        serviceValue: SERVICE_SETTING_VALUE,
-        hostError,
+        selection: { inference: await selectionFor("inference"), voice: await selectionFor("voice") },
+        serviceMessage: service && !service.status.ready ? service.status.message : null,
       };
     },
     models: async ({ kind, refresh }) => ({
       models: (await listModels(kind, refresh)).map(({ reasoning: _reasoning, ...model }) => model),
     }),
     setModel: async ({ kind, model }) => {
-      if (kind === "voice") {
-        const next = await settings.experimental_set({ transcriptionModel: model });
-        return { model: next.transcriptionModel };
-      }
-      const next = await settings.experimental_set({ model });
-      return { model: next.model };
+      const next =
+        kind === "voice"
+          ? await settings.experimental_set({ transcriptionModel: model })
+          : await settings.experimental_set({ model });
+      return { model: kind === "voice" ? next.transcriptionModel : next.model };
     },
     useFor: async ({ kind }) => {
-      const value = await selectService(kind);
+      // Titles and commit messages are separate BB tasks; the inference kind
+      // takes both.
+      for (const task of TASKS[kind]) {
+        await bb.sdk.system.setAiServiceSelection({
+          task,
+          selection: { mode: "service", pluginId: bb.pluginId, serviceId: SERVICE_ID },
+        });
+      }
       bb.realtime.publish(STATE_CHANGED, {});
-      return { value };
+      return { selection: await selectionFor(kind) };
     },
-    test: async ({ kind }) => {
-      const hostId = await primaryHostId();
-      await host.call("configure", { config: await buildHostConfig() }, { hostId });
-      const result = await host.call("test", { kind }, { hostId, timeoutMs: 25_000 });
-      if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
-      return { text: result.text, model: result.model, durationMs: result.durationMs };
-    },
+    test: ({ kind }) => runTest(kind),
   });
 }
 

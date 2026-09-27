@@ -4,31 +4,14 @@ import {
   buildCompletionRequest,
   buildTranscriptionRequest,
   completeWithOpenRouter,
-  errorCodeForStatus,
   fetchOpenRouterModels,
-  parseJsonObject,
   reasoningParamFor,
   transcribeWithOpenRouter,
   transcriptionPromptTail,
+  type AudioUpload,
 } from "./openrouter.js";
 
-const input = {
-  serviceId: "openrouter-inference",
-  model: "default",
-  reasoningEffort: "none" as const,
-  prompt: "Title this thread",
-  outputSchema: { type: "object", properties: { title: { type: "string", minLength: 1 } } },
-  timeoutMs: 5_000,
-};
-const voiceInput = {
-  serviceId: "openrouter-inference",
-  model: "default",
-  audioBase64: "T2dnUw==",
-  filename: "recording.webm",
-  mimeType: "audio/webm;codecs=opus",
-  prompt: null,
-  timeoutMs: 5_000,
-};
+const audio: AudioUpload = { base64: "T2dnUw==", filename: "recording.webm", mimeType: "audio/webm;codecs=opus" };
 const config = {
   apiKey: "sk-or-test",
   model: "google/gemini-2.5-flash-lite",
@@ -142,92 +125,60 @@ describe("reasoningParamFor", () => {
 });
 
 describe("buildCompletionRequest", () => {
-  it("sends a strict schema and the configured model", () => {
-    const request = buildCompletionRequest(input, { ...config, reasoning: { effort: "none" } });
-    expect(request).toMatchObject({
+  it("sends the prompt as a plain turn with the configured model", () => {
+    expect(buildCompletionRequest("Title this thread", config)).toEqual({
       model: "google/gemini-2.5-flash-lite",
-      reasoning: { effort: "none" },
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            required: ["title"],
-          },
-        },
-      },
+      messages: [{ role: "user", content: "Title this thread" }],
+      stream: false,
     });
-    expect(buildCompletionRequest(input, config)).not.toHaveProperty("reasoning");
-  });
-});
-
-describe("parseJsonObject", () => {
-  it("accepts bare, fenced, and prose-wrapped objects", () => {
-    expect(parseJsonObject('{"title":"A"}')).toEqual({ title: "A" });
-    expect(parseJsonObject('```json\n{"title":"B"}\n```')).toEqual({ title: "B" });
-    expect(parseJsonObject('Here you go: {"title":"C"} hope that helps')).toEqual({ title: "C" });
   });
 
-  it("rejects non-objects", () => {
-    expect(parseJsonObject("[1,2]")).toBeNull();
-    expect(parseJsonObject("no json")).toBeNull();
-  });
-});
-
-describe("errorCodeForStatus", () => {
-  it("maps HTTP statuses to BB's retry codes", () => {
-    expect(errorCodeForStatus(401)).toBe("auth_required");
-    expect(errorCodeForStatus(402)).toBe("rate_limited");
-    expect(errorCodeForStatus(429)).toBe("rate_limited");
-    expect(errorCodeForStatus(503)).toBe("service_unavailable");
-    expect(errorCodeForStatus(400)).toBe("request_failed");
+  it("adds the model's reasoning override when there is one", () => {
+    expect(buildCompletionRequest("Title this thread", { ...config, reasoning: { effort: "none" } })).toMatchObject({
+      reasoning: { effort: "none" },
+    });
   });
 });
 
 describe("completeWithOpenRouter", () => {
-  it("returns the parsed object and authenticates with the key", async () => {
+  it("returns the model's text and authenticates with the key", async () => {
     const fetchMock = stubResponse(200, {
       model: "google/gemini-2.5-flash-lite",
-      choices: [{ message: { content: '{"title":"OpenRouter titles"}' } }],
+      choices: [{ message: { content: "  OpenRouter titles  " } }],
     });
-    const result = await completeWithOpenRouter(input, config, new AbortController().signal);
-    expect(result).toEqual({
-      ok: true,
-      model: "google/gemini-2.5-flash-lite",
-      value: { title: "OpenRouter titles" },
-    });
+    expect(await completeWithOpenRouter("Title this thread", config, new AbortController().signal)).toBe(
+      "OpenRouter titles",
+    );
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(new Headers(init.headers).get("Authorization")).toBe("Bearer sk-or-test");
   });
 
-  it("reports a bad key as auth_required with OpenRouter's message", async () => {
+  it("reports a bad key with OpenRouter's message", async () => {
     stubResponse(401, { error: { message: "No auth credentials found" } });
-    const result = await completeWithOpenRouter(input, config, new AbortController().signal);
-    expect(result).toEqual({
-      ok: false,
-      code: "auth_required",
-      message: "OpenRouter HTTP 401: No auth credentials found",
-    });
+    await expect(completeWithOpenRouter("Title", config, new AbortController().signal)).rejects.toThrow(
+      "OpenRouter HTTP 401: No auth credentials found",
+    );
   });
 
-  it("maps an error delivered in a 200 reply by the status it carries", async () => {
+  it("reports an error delivered in a 200 reply", async () => {
     stubResponse(200, { error: { code: 429, message: "Rate limit exceeded" } });
-    const result = await completeWithOpenRouter(input, config, new AbortController().signal);
-    expect(result).toEqual({ ok: false, code: "rate_limited", message: "OpenRouter error: Rate limit exceeded" });
+    await expect(completeWithOpenRouter("Title", config, new AbortController().signal)).rejects.toThrow(
+      "OpenRouter error: Rate limit exceeded",
+    );
   });
 
-  it("reports unparseable content as invalid_response", async () => {
-    stubResponse(200, { choices: [{ message: { content: "Sure! A title." } }] });
-    const result = await completeWithOpenRouter(input, config, new AbortController().signal);
-    expect(result).toMatchObject({ ok: false, code: "invalid_response" });
+  it("reports a reply with no completion text", async () => {
+    stubResponse(200, { choices: [{ message: { content: null } }] });
+    await expect(completeWithOpenRouter("Title", config, new AbortController().signal)).rejects.toThrow(
+      "google/gemini-2.5-flash-lite returned no completion text",
+    );
   });
 
-  it("maps a request that outlives timeoutMs to timeout", async () => {
+  it("maps a request that outlives its timeout to a timeout error", async () => {
     stubHangingFetch();
-    const result = await completeWithOpenRouter({ ...input, timeoutMs: 20 }, config, new AbortController().signal);
-    expect(result).toMatchObject({ ok: false, code: "timeout" });
+    await expect(
+      completeWithOpenRouter("Title", config, new AbortController().signal, 20),
+    ).rejects.toThrow("OpenRouter did not answer within 20ms");
   });
 });
 
@@ -267,14 +218,14 @@ describe("transcriptionPromptTail", () => {
 
 describe("buildTranscriptionRequest", () => {
   it("sends the configured model and the audio format", () => {
-    expect(buildTranscriptionRequest(voiceInput, config)).toEqual({
+    expect(buildTranscriptionRequest(audio, null, config)).toEqual({
       model: "openai/gpt-4o-mini-transcribe",
       input_audio: { data: "T2dnUw==", format: "webm" },
     });
   });
 
-  it("passes the prompt context to providers that accept one", () => {
-    expect(buildTranscriptionRequest({ ...voiceInput, prompt: "Rename BB_TRANSCRIPTION" }, config)).toMatchObject({
+  it("passes the hint to providers that accept one", () => {
+    expect(buildTranscriptionRequest(audio, "Rename BB_TRANSCRIPTION", config)).toMatchObject({
       provider: {
         options: {
           openai: { prompt: "Rename BB_TRANSCRIPTION" },
@@ -284,10 +235,10 @@ describe("buildTranscriptionRequest", () => {
     });
   });
 
-  it("sends only the end of a long prompt", () => {
+  it("sends only the end of a long hint", () => {
     const tail = transcriptionPromptTail(LONG_PROMPT);
     expect(tail?.length).toBeLessThan(LONG_PROMPT.length);
-    expect(buildTranscriptionRequest({ ...voiceInput, prompt: LONG_PROMPT }, config)).toMatchObject({
+    expect(buildTranscriptionRequest(audio, LONG_PROMPT, config)).toMatchObject({
       provider: { options: { openai: { prompt: tail }, groq: { prompt: tail } } },
     });
   });
@@ -296,36 +247,41 @@ describe("buildTranscriptionRequest", () => {
 describe("transcribeWithOpenRouter", () => {
   it("posts the audio with the key and trims the transcript", async () => {
     const fetchMock = stubResponse(200, { text: " Testing voice transcription in BB.", usage: { seconds: 2.6 } });
-    const result = await transcribeWithOpenRouter(voiceInput, config, new AbortController().signal);
-    expect(result).toEqual({
-      ok: true,
-      model: "openai/gpt-4o-mini-transcribe",
-      text: "Testing voice transcription in BB.",
-    });
+    expect(await transcribeWithOpenRouter(audio, config, new AbortController().signal)).toBe(
+      "Testing voice transcription in BB.",
+    );
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://openrouter.ai/api/v1/audio/transcriptions");
     expect(new Headers(init.headers).get("Authorization")).toBe("Bearer sk-or-test");
   });
 
-  it("reports an unknown model as request_failed with OpenRouter's message", async () => {
-    stubResponse(400, { error: { message: "Model openai/not-a-model does not exist", code: 400 } });
-    const result = await transcribeWithOpenRouter(voiceInput, config, new AbortController().signal);
-    expect(result).toEqual({
-      ok: false,
-      code: "request_failed",
-      message: "OpenRouter HTTP 400: Model openai/not-a-model does not exist",
+  it("forwards the hint as provider options", async () => {
+    const fetchMock = stubResponse(200, { text: "hi" });
+    await transcribeWithOpenRouter(audio, config, new AbortController().signal, "BB_TRANSCRIPTION");
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      provider: { options: { openai: { prompt: "BB_TRANSCRIPTION" } } },
     });
   });
 
-  it("reports a reply without text as invalid_response", async () => {
-    stubResponse(200, { usage: { seconds: 1 } });
-    const result = await transcribeWithOpenRouter(voiceInput, config, new AbortController().signal);
-    expect(result).toMatchObject({ ok: false, code: "invalid_response" });
+  it("reports an unknown model with OpenRouter's message", async () => {
+    stubResponse(400, { error: { message: "Model openai/not-a-model does not exist", code: 400 } });
+    await expect(transcribeWithOpenRouter(audio, config, new AbortController().signal)).rejects.toThrow(
+      "OpenRouter HTTP 400: Model openai/not-a-model does not exist",
+    );
   });
 
-  it("maps a request that outlives timeoutMs to timeout", async () => {
+  it("reports a reply without text", async () => {
+    stubResponse(200, { usage: { seconds: 1 } });
+    await expect(transcribeWithOpenRouter(audio, config, new AbortController().signal)).rejects.toThrow(
+      "openai/gpt-4o-mini-transcribe did not return a transcript",
+    );
+  });
+
+  it("maps a request that outlives its timeout to a timeout error", async () => {
     stubHangingFetch();
-    const result = await transcribeWithOpenRouter({ ...voiceInput, timeoutMs: 20 }, config, new AbortController().signal);
-    expect(result).toMatchObject({ ok: false, code: "timeout" });
+    await expect(
+      transcribeWithOpenRouter(audio, config, new AbortController().signal, null, 20),
+    ).rejects.toThrow("OpenRouter did not answer within 20ms");
   });
 });
