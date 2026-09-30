@@ -903,6 +903,12 @@ function MoreSection() {
       <Fold title="Advanced">
         <Card>
           <ModelIdField
+            label="Jev model id on TypeSafe"
+            value={preferences.typesafeJevModel}
+            fallback={DEFAULT_PREFERENCES.typesafeJevModel}
+            onSave={(typesafeJevModel) => save({ typesafeJevModel })}
+          />
+          <ModelIdField
             label="Jev model id on OpenRouter"
             value={preferences.openRouterJevModel}
             fallback={DEFAULT_PREFERENCES.openRouterJevModel}
