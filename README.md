@@ -10,6 +10,7 @@ Sawyer Hood's [BB](https://getbb.app) plugins, in one repository. Every plugin l
 | CoW copy | [`plugins/btrfs-cow`](plugins/btrfs-cow) | An environment provider that uses copy-on-write reflink copies instead of git worktrees (Btrfs/XFS). |
 | Magic Compose | [`plugins/magic-compose`](plugins/magic-compose) | A wand beside the send button on the new-thread composer: switch it on and Jev picks the project, machine, model, reasoning level, and environment as you type. |
 | Miku Companion | [`plugins/miku`](plugins/miku) | An event-aware Hatsune Miku companion and theme. |
+| Nav Rail | [`plugins/nav-rail`](plugins/nav-rail) | Sidebar navigation as a vertical icon rail on the left, with New thread beside the back and forward buttons. |
 | OpenRouter Inference | [`plugins/openrouter-inference`](plugins/openrouter-inference) | Thread titles, commit messages, and voice transcription from OpenRouter models, with your own API key. |
 | Pokémon | [`plugins/pokemon`](plugins/pokemon) | Catch a random Pokémon every time you archive a thread, and fill out your Pokédex. |
 | Quick Chat | [`plugins/quick-chat`](plugins/quick-chat) | A floating chat window for quick, projectless questions. |

@@ -9,6 +9,7 @@
     { "name": "compact-nav", "source": "./plugins/compact-nav" },
     { "name": "magic-compose", "source": "./plugins/magic-compose" },
     { "name": "miku", "source": "./plugins/miku" },
+    { "name": "nav-rail", "source": "./plugins/nav-rail" },
     { "name": "openrouter-inference", "source": "./plugins/openrouter-inference" },
     { "name": "pokemon", "source": "./plugins/pokemon" },
     { "name": "quick-chat", "source": "./plugins/quick-chat" },
