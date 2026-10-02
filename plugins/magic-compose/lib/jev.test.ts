@@ -185,7 +185,70 @@ describe("askChoice on OpenRouter", () => {
   });
 });
 
+describe("askChoice on TypeSafe", () => {
+  it("speaks the System One endpoint and reads confidence off the answer", async () => {
+    let request: { url: string; init: RequestInit } | undefined;
+    const fetchImpl: typeof fetch = async (url, init) => {
+      request = { url: String(url), init: init ?? {} };
+      return new Response(
+        JSON.stringify({
+          model: "jev-1.13.0",
+          answers: {
+            q0: { type: "choice", choice: "games", probabilities: { bb: 0.2, games: 0.8 }, confidence: 0.77 },
+          },
+          usage: { input_tokens: 390, output_tokens: 0 },
+        }),
+      );
+    };
+
+    const answer = await askChoice({
+      provider: "typesafe",
+      apiKey: "ts-key",
+      model: "jev-latest",
+      state: { task: "Add a lap counter" },
+      question: { instructions: "Pick the project.", options: { bb: "The BB app.", games: null } },
+      fetchImpl,
+    });
+
+    expect(request?.url).toBe(JEV_PROVIDERS.typesafe.url);
+    const headers = request?.init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer ts-key");
+    // No gateway protocol headers: the key is the only credential, and the
+    // model travels in the body. TypeSafe accepts a null option description.
+    expect(headers["ai-model-id"]).toBeUndefined();
+    expect(headers["X-Title"]).toBeUndefined();
+    expect(JSON.parse(String(request?.init.body))).toEqual({
+      model: "jev-latest",
+      state: { task: "Add a lap counter" },
+      questions: {
+        q0: { type: "choice", instructions: "Pick the project.", criteria: { bb: "The BB app.", games: null } },
+      },
+    });
+    expect(answer).toMatchObject({
+      choice: "games",
+      probabilities: { bb: 0.2, games: 0.8 },
+      confidence: 0.77,
+      inputTokens: 390,
+    });
+  });
+
+  it("names TypeSafe when the key is rejected, and points at its own limits on a 429", async () => {
+    const ask = (status: number) =>
+      askChoice({
+        provider: "typesafe",
+        apiKey: "k",
+        model: "jev-latest",
+        state: "s",
+        question,
+        fetchImpl: respond(status, { error: { message: "Invalid API key.", code: status } }),
+      }).catch((cause: unknown) => cause as JevError);
+    expect(await ask(401)).toMatchObject({ code: "auth", message: expect.stringContaining("TypeSafe") });
+    expect(((await ask(429)) as JevError).message).toMatch(/TypeSafe rate-limited Jev \(HTTP 429\)\. Jev's own limits/);
+  });
+});
+
 describe("askChoicesVia", () => {
+  const typesafe = { provider: "typesafe" as const, apiKey: "t", model: "jev-latest" };
   const vercel = { provider: "vercel" as const, apiKey: "v", model: "typesafe-ai/jev" };
   const openrouter = { provider: "openrouter" as const, apiKey: "o", model: "typesafe/jev-1.13" };
 
@@ -193,17 +256,21 @@ describe("askChoicesVia", () => {
     const urls: string[] = [];
     const fetchImpl: typeof fetch = async (url) => {
       urls.push(String(url));
-      return String(url) === JEV_PROVIDERS.vercel.url
-        ? new Response("{}", { status: 429 })
-        : new Response(JSON.stringify({ answers: { q0: { type: "choice", choice: "bb" } } }));
+      return String(url) === JEV_PROVIDERS.openrouter.url
+        ? new Response(JSON.stringify({ answers: { q0: { type: "choice", choice: "bb" } } }))
+        : new Response("{}", { status: 429 });
     };
-    const answers = await askChoicesVia([vercel, openrouter], {
+    const answers = await askChoicesVia([typesafe, vercel, openrouter], {
       state: "s",
       questions: { project: question },
       fetchImpl,
     });
     expect(answers.project?.choice).toBe("bb");
-    expect(urls).toEqual([JEV_PROVIDERS.vercel.url, JEV_PROVIDERS.openrouter.url]);
+    expect(urls).toEqual([
+      JEV_PROVIDERS.typesafe.url,
+      JEV_PROVIDERS.vercel.url,
+      JEV_PROVIDERS.openrouter.url,
+    ]);
   });
 
   it("reports the last gateway's error when every one fails, and says so when none is set", async () => {
