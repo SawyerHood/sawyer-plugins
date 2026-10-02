@@ -25,6 +25,8 @@ import {
 } from "./lib/history";
 import { formatSpans, Profiler } from "./lib/profile";
 import {
+  DEFAULT_JEV_MODELS,
+  DEFAULT_LAYA_URL,
   DEFAULT_PREFERENCES,
   PERMISSION_MODES,
   type Preferences,
@@ -70,11 +72,29 @@ const PROVIDER_CHECK_TIMEOUT_MS = 2_500;
 const DEFAULT_ENVIRONMENTS = ["git-worktree"];
 /** Works for any project with a folder, so it backs up environments that need git. */
 const FALLBACK_ENVIRONMENT = "project-checkout";
-/** `auto` uses whichever key is set, and both when both are: the second backs up the first. */
-const JEV_PROVIDER_CHOICES = ["auto", "vercel", "openrouter"] as const;
+/** `auto` tries the local laya sidecar first, then whichever key is set. */
+const JEV_PROVIDER_CHOICES = ["auto", "local", "vercel", "openrouter"] as const;
 
 
 type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+/**
+ * The layaUrl preference is the sidecar's decisions endpoint. A bare origin,
+ * the common shortcut, is completed with the decisions path.
+ */
+function normalizeLayaUrl(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed === "") return DEFAULT_LAYA_URL;
+  try {
+    const url = new URL(trimmed);
+    if (url.pathname === "" || url.pathname === "/") {
+      return `${url.origin}/decisions`;
+    }
+    return url.toString();
+  } catch {
+    return DEFAULT_LAYA_URL;
+  }
+}
 
 const rotationEntrySchema = z
   .object({
@@ -314,23 +334,23 @@ export default async function plugin(bb: BbPluginApi) {
       type: "string",
       label: "Vercel AI Gateway API key",
       description:
-        "One way to reach Jev; set this, an OpenRouter key, or both. Create one in the Vercel dashboard under AI Gateway → API keys. The free tier allows only about 10 Jev calls per 5 minutes; any Gateway credit lifts that.",
+        "One way to reach Jev; set this, an OpenRouter key, or both. Not needed for the Local (laya) provider. Create one in the Vercel dashboard under AI Gateway → API keys. The free tier allows only about 10 Jev calls per 5 minutes; any Gateway credit lifts that.",
       secret: true,
     },
     openRouterApiKey: {
       type: "string",
       label: "OpenRouter API key",
       description:
-        "The other way to reach Jev (typesafe/jev-1.13). Create one at https://openrouter.ai/keys.",
+        "The other way to reach Jev (typesafe/jev-1.13). Not needed for the Local (laya) provider. Create one at https://openrouter.ai/keys.",
       secret: true,
     },
     jevProvider: {
       type: "select",
       label: "Jev provider",
       description:
-        "Which key to route with. “auto” uses whichever key is set; with both set it asks the Vercel AI Gateway first and OpenRouter if that fails.",
+        "Which model serves the routing decisions. “auto” tries the Local (laya) sidecar first (free, nothing leaves this machine), then the Vercel AI Gateway, then OpenRouter; set a key only for the ones you want as backups.",
       options: [...JEV_PROVIDER_CHOICES],
-      default: "auto",
+      default: "local",
     },
   });
 
@@ -385,12 +405,33 @@ export default async function plugin(bb: BbPluginApi) {
       vercel: secret(config.gatewayApiKey),
       openrouter: secret(config.openRouterApiKey),
     };
-    const models = { vercel: config.jevModel, openrouter: config.openRouterJevModel };
-    const order: JevProvider[] =
-      config.jevProvider === "vercel" || config.jevProvider === "openrouter"
-        ? [config.jevProvider]
-        : ["vercel", "openrouter"];
+    const models = {
+      local: config.jevModel === DEFAULT_JEV_MODELS.vercel ? DEFAULT_JEV_MODELS.local : config.jevModel,
+      vercel: config.jevModel,
+      openrouter: config.openRouterJevModel,
+    };
+    let order: readonly JevProvider[];
+    switch (config.jevProvider) {
+      case "local":
+      case "vercel":
+      case "openrouter":
+        order = [config.jevProvider];
+        break;
+      default:
+        order = ["local", "vercel", "openrouter"];
+    }
     return order.flatMap((provider): JevRoute[] => {
+      if (provider === "local") {
+        // No key, and the sidecar URL is a preference, not a secret.
+        return [
+          {
+            provider,
+            apiKey: null,
+            model: models.local,
+            baseUrl: normalizeLayaUrl(config.layaUrl),
+          },
+        ];
+      }
       const apiKey = keys[provider];
       return apiKey === null ? [] : [{ provider, apiKey, model: models[provider] }];
     });
@@ -568,10 +609,12 @@ export default async function plugin(bb: BbPluginApi) {
     if (routes.length === 0) {
       throw new RouteError(
         config.jevProvider === "auto"
-          ? "Add a Vercel AI Gateway or OpenRouter API key in Magic Compose settings first."
-          : config.jevProvider === "openrouter"
-            ? "Add an OpenRouter API key in Magic Compose settings, or set the Jev provider to auto."
-            : "Add a Vercel AI Gateway API key in Magic Compose settings, or set the Jev provider to auto.",
+          ? "Start the laya sidecar (see Magic Compose → sidecar README), or add an API key in Magic Compose settings."
+          : config.jevProvider === "local"
+            ? "Start the laya sidecar so Magic Compose can reach it, or set the Jev provider to auto. See the sidecar README for the command."
+            : config.jevProvider === "openrouter"
+              ? "Add an OpenRouter API key in Magic Compose settings, or set the Jev provider to auto."
+              : "Add a Vercel AI Gateway API key in Magic Compose settings, or set the Jev provider to auto.",
       );
     }
     const rotation = await profiler.time("kv.rotation", () => readRotation());
@@ -1059,7 +1102,8 @@ export default async function plugin(bb: BbPluginApi) {
   async function backtest(rows: readonly HistoryRow[]): Promise<BacktestResult[]> {
     const config = await readConfig();
     const routes = await jevRoutes();
-    if (routes.length === 0) throw new RouteError("Add a Jev API key in Magic Compose settings first.");
+    if (routes.length === 0)
+      throw new RouteError("No route to Jev is set up: start the laya sidecar or add an API key in Magic Compose settings.");
     const [scope, { models, catalogs }] = await Promise.all([
       readScope(),
       readRotation().then(loadModels),
