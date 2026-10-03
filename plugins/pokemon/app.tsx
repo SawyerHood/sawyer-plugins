@@ -13,7 +13,7 @@ export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "pokedex",
     title: "Pokédex",
-    icon: "GridView",
+    icon: "pokemon/pokeball",
     path: POKEDEX_PATH,
     component: PokedexPage,
     experimental_sidebarAccessory: ProgressAccessory,
