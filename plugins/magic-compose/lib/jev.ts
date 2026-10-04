@@ -1,7 +1,11 @@
-// Jev (TypeSafe's classifier model), reached through either gateway that
-// serves it. Both take a `state` and typed questions and return a choice with
-// probabilities; they differ in URL, headers, and where the confidence sits.
+// Jev (TypeSafe's classifier model), reached through its own API or through
+// either gateway that serves it. All three take a `state` and typed questions
+// and return a choice with probabilities; they differ in URL, headers, and
+// where the confidence sits.
 //
+// - TypeSafe's own System One API is the official endpoint: the model travels
+//   in the body, the key is the only credential, and there is no gateway's
+//   free-tier cap in the way.
 // - Vercel AI Gateway only serves evaluation models over the AI SDK's wire
 //   protocol, so this speaks that protocol with fetch rather than bundling the
 //   SDK. That also sidesteps the SDK rejecting near-tied answers whose rounded
@@ -11,12 +15,18 @@ import { z } from "zod";
 import { DEFAULT_JEV_MODELS } from "./preferences";
 import { jevTransport } from "./transport";
 
-export type JevProvider = "vercel" | "openrouter";
+export type JevProvider = "typesafe" | "vercel" | "openrouter";
 
 export const JEV_PROVIDERS: Record<
   JevProvider,
   { name: string; url: string; defaultModel: string; keysUrl: string }
 > = {
+  typesafe: {
+    name: "TypeSafe",
+    url: "https://api.typesafe.ai/v1/systemone",
+    defaultModel: DEFAULT_JEV_MODELS.typesafe,
+    keysUrl: "https://console.typesafe.ai/keys",
+  },
   vercel: {
     name: "Vercel AI Gateway",
     url: "https://ai-gateway.vercel.sh/v4/ai/evaluation-model",
@@ -138,6 +148,10 @@ function buildRequest(args: AskChoicesArgs): { headers: Record<string, string>; 
       body: { model: args.model, state: args.state, questions },
     };
   }
+  // TypeSafe's own API: the model is a body field, and the key is all it wants.
+  if (args.provider === "typesafe") {
+    return { headers: base, body: { model: args.model, state: args.state, questions } };
+  }
   return {
     headers: {
       ...base,
@@ -182,11 +196,15 @@ function errorForStatus(provider: JevProvider, status: number, body: string): Je
     return new JevError("no_credit", `${name} says the account is out of credit (HTTP 402).`);
   }
   if (status === 429 || status === 529) {
+    const detail =
+      provider === "vercel"
+        ? "The free tier allows about 10 Jev calls per 5 minutes; add Gateway credits to lift it."
+        : provider === "typesafe"
+          ? "Jev's own limits are per second, so this should clear almost at once."
+          : "";
     return new JevError(
       "rate_limited",
-      provider === "vercel"
-        ? `The Vercel AI Gateway rate-limited Jev (HTTP ${status}). The free tier allows about 10 Jev calls per 5 minutes; add Gateway credits to lift it.`
-        : `OpenRouter rate-limited Jev (HTTP ${status}).`,
+      `${name} rate-limited Jev (HTTP ${status}).${detail === "" ? "" : ` ${detail}`}`,
     );
   }
   return new JevError(

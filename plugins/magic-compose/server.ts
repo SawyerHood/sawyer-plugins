@@ -1,7 +1,7 @@
 // Magic Compose: route a new-thread prompt to a project, machine, model, and
-// reasoning level with Jev (TypeSafe's classifier) on the Vercel AI Gateway,
-// then start the thread there. app.tsx owns the composer toggle; this file
-// gathers the candidates, asks Jev, and spawns.
+// reasoning level with Jev (TypeSafe's classifier) on TypeSafe's own API or a
+// gateway that serves it, then start the thread there. app.tsx owns the composer
+// toggle; this file gathers the candidates, asks Jev, and spawns.
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { hostContract, machineStatsSchema } from "./contract";
@@ -70,8 +70,15 @@ const PROVIDER_CHECK_TIMEOUT_MS = 2_500;
 const DEFAULT_ENVIRONMENTS = ["git-worktree"];
 /** Works for any project with a folder, so it backs up environments that need git. */
 const FALLBACK_ENVIRONMENT = "project-checkout";
-/** `auto` uses whichever key is set, and both when both are: the second backs up the first. */
-const JEV_PROVIDER_CHOICES = ["auto", "vercel", "openrouter"] as const;
+/** `auto` uses whichever keys are set, and all of them when several are: each backs up the one before. */
+const JEV_PROVIDER_CHOICES = ["auto", "typesafe", "vercel", "openrouter"] as const;
+/** The order `auto` tries them in. Jev's own API goes first: no gateway free-tier cap. */
+const AUTO_JEV_ORDER: readonly JevProvider[] = ["typesafe", "vercel", "openrouter"];
+
+/** The provider pinned in settings, or null when the choice is `auto`. */
+function pinnedJevProvider(value: string): JevProvider | null {
+  return value === "typesafe" || value === "vercel" || value === "openrouter" ? value : null;
+}
 
 
 type PermissionMode = (typeof PERMISSION_MODES)[number];
@@ -310,11 +317,18 @@ function formatDecision(decision: DecisionSummary): string {
 
 export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
+    typesafeApiKey: {
+      type: "string",
+      label: "TypeSafe API key",
+      description:
+        "Jev's own API (api.typesafe.ai, jev-latest). Create one at https://console.typesafe.ai/keys. No gateway free-tier cap, so this is the best key to have for live routing.",
+      secret: true,
+    },
     gatewayApiKey: {
       type: "string",
       label: "Vercel AI Gateway API key",
       description:
-        "One way to reach Jev; set this, an OpenRouter key, or both. Create one in the Vercel dashboard under AI Gateway → API keys. The free tier allows only about 10 Jev calls per 5 minutes; any Gateway credit lifts that.",
+        "Another way to reach Jev; set this, an OpenRouter key, or both. Create one in the Vercel dashboard under AI Gateway → API keys. The free tier allows only about 10 Jev calls per 5 minutes; any Gateway credit lifts that.",
       secret: true,
     },
     openRouterApiKey: {
@@ -328,7 +342,7 @@ export default async function plugin(bb: BbPluginApi) {
       type: "select",
       label: "Jev provider",
       description:
-        "Which key to route with. “auto” uses whichever key is set; with both set it asks the Vercel AI Gateway first and OpenRouter if that fails.",
+        "Which key to route with. “auto” uses whichever keys are set, asking TypeSafe first, then the Vercel AI Gateway, then OpenRouter, and moving on when one is unavailable.",
       options: [...JEV_PROVIDER_CHOICES],
       default: "auto",
     },
@@ -382,14 +396,17 @@ export default async function plugin(bb: BbPluginApi) {
     const secret = (value: unknown) =>
       typeof value === "string" && value.trim() !== "" ? value.trim() : null;
     const keys = {
+      typesafe: secret(config.typesafeApiKey),
       vercel: secret(config.gatewayApiKey),
       openrouter: secret(config.openRouterApiKey),
     };
-    const models = { vercel: config.jevModel, openrouter: config.openRouterJevModel };
-    const order: JevProvider[] =
-      config.jevProvider === "vercel" || config.jevProvider === "openrouter"
-        ? [config.jevProvider]
-        : ["vercel", "openrouter"];
+    const models = {
+      typesafe: config.typesafeJevModel,
+      vercel: config.jevModel,
+      openrouter: config.openRouterJevModel,
+    };
+    const pinned = pinnedJevProvider(config.jevProvider);
+    const order: readonly JevProvider[] = pinned === null ? AUTO_JEV_ORDER : [pinned];
     return order.flatMap((provider): JevRoute[] => {
       const apiKey = keys[provider];
       return apiKey === null ? [] : [{ provider, apiKey, model: models[provider] }];
@@ -566,12 +583,11 @@ export default async function plugin(bb: BbPluginApi) {
     const config = await profiler.time("settings", () => readConfig());
     const routes = await profiler.time("settings.keys", () => jevRoutes());
     if (routes.length === 0) {
+      const pinned = pinnedJevProvider(config.jevProvider);
       throw new RouteError(
-        config.jevProvider === "auto"
-          ? "Add a Vercel AI Gateway or OpenRouter API key in Magic Compose settings first."
-          : config.jevProvider === "openrouter"
-            ? "Add an OpenRouter API key in Magic Compose settings, or set the Jev provider to auto."
-            : "Add a Vercel AI Gateway API key in Magic Compose settings, or set the Jev provider to auto.",
+        pinned === null
+          ? "Add a TypeSafe, Vercel AI Gateway or OpenRouter API key in Magic Compose settings first."
+          : `Add a ${JEV_PROVIDERS[pinned].name} API key in Magic Compose settings, or set the Jev provider to auto.`,
       );
     }
     const rotation = await profiler.time("kv.rotation", () => readRotation());
