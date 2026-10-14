@@ -249,7 +249,7 @@ function statusLine(status: Status): { tone: "ok" | "idle" | "bad"; text: string
   if (!status.hasApiKey) {
     return {
       tone: "bad",
-      text: "No route to Jev. Start the laya sidecar for the free local model, or add an API key above.",
+      text: "Configure Local (Laya sidecar), a self-hosted server URL/model, or a cloud API key above.",
     };
   }
   if (status.rotationSize === 0) {
@@ -908,10 +908,16 @@ function MoreSection() {
       <Fold title="Advanced">
         <Card>
           <ModelIdField
-            label="Laya sidecar URL"
+            label="Local Laya sidecar URL"
             value={preferences.layaUrl}
             fallback={DEFAULT_PREFERENCES.layaUrl}
             onSave={(layaUrl) => save({ layaUrl })}
+          />
+          <ModelIdField
+            label="Local Laya model ID"
+            value={preferences.layaModel}
+            fallback={DEFAULT_PREFERENCES.layaModel}
+            onSave={(layaModel) => save({ layaModel })}
           />
           <ModelIdField
             label="Jev model id on OpenRouter"

@@ -52,6 +52,7 @@ const fields = {
   pace: z.enum(["typing", "pause"]),
   /** The local laya sidecar's decisions endpoint. */
   layaUrl: z.string().url().max(300),
+  layaModel: jevModelSchema,
 };
 
 export const preferencesSchema = z.object(fields).strict();
@@ -72,6 +73,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   jevModel: DEFAULT_JEV_MODELS.vercel,
   openRouterJevModel: DEFAULT_JEV_MODELS.openrouter,
   layaUrl: DEFAULT_LAYA_URL,
+  layaModel: DEFAULT_JEV_MODELS.local,
   maySet: { project: true, placement: true, model: true, effort: true },
   holdSend: true,
   pace: "typing",
@@ -89,6 +91,11 @@ export function readStoredPreferences(stored: unknown): Preferences {
   const parsed = preferencesSchema.safeParse({
     ...DEFAULT_PREFERENCES,
     ...record,
+    layaModel: record.layaModel ?? (
+      typeof record.layaUrl === "string" && typeof record.jevModel === "string" &&
+      record.jevModel !== DEFAULT_JEV_MODELS.vercel
+        ? record.jevModel : DEFAULT_JEV_MODELS.local
+    ),
     maySet: { ...DEFAULT_PREFERENCES.maySet, ...maySet },
   });
   return parsed.success ? parsed.data : DEFAULT_PREFERENCES;

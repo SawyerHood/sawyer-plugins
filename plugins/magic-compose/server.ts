@@ -10,10 +10,10 @@ import {
   JEV_PROVIDERS,
   JevError,
   warmRoutes,
-  type JevProvider,
   type JevRoute,
 } from "./lib/jev";
 import { jevTransport } from "./lib/transport";
+import { decisionRoutes } from "./lib/decision-routes";
 import { SwrCache } from "./lib/cache";
 import {
   backtestRows,
@@ -73,28 +73,10 @@ const DEFAULT_ENVIRONMENTS = ["git-worktree"];
 /** Works for any project with a folder, so it backs up environments that need git. */
 const FALLBACK_ENVIRONMENT = "project-checkout";
 /** `auto` tries the local laya sidecar first, then whichever key is set. */
-const JEV_PROVIDER_CHOICES = ["auto", "local", "vercel", "openrouter"] as const;
+const JEV_PROVIDER_CHOICES = ["auto", "local", "selfhosted", "vercel", "openrouter"] as const;
 
 
 type PermissionMode = (typeof PERMISSION_MODES)[number];
-
-/**
- * The layaUrl preference is the sidecar's decisions endpoint. A bare origin,
- * the common shortcut, is completed with the decisions path.
- */
-function normalizeLayaUrl(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed === "") return DEFAULT_LAYA_URL;
-  try {
-    const url = new URL(trimmed);
-    if (url.pathname === "" || url.pathname === "/") {
-      return `${url.origin}/decisions`;
-    }
-    return url.toString();
-  } catch {
-    return DEFAULT_LAYA_URL;
-  }
-}
 
 const rotationEntrySchema = z
   .object({
@@ -346,11 +328,35 @@ export default async function plugin(bb: BbPluginApi) {
     },
     jevProvider: {
       type: "select",
-      label: "Jev provider",
+      label: "Decision provider",
       description:
-        "Which model serves the routing decisions. “auto” tries the Local (laya) sidecar first (free, nothing leaves this machine), then the Vercel AI Gateway, then OpenRouter; set a key only for the ones you want as backups.",
+        "Choose local for a manually started Laya sidecar, selfhosted for an existing server by URL, or a cloud gateway. auto retains local → Vercel → OpenRouter; it never probes the self-hosted URL.",
       options: [...JEV_PROVIDER_CHOICES],
       default: "local",
+    },
+    systemOneUrl: {
+      type: "string",
+      label: "Self-hosted server URL",
+      description: "Complete HTTP(S) decision endpoint, including its path. Used only by selfhosted; no local model is started or contacted.",
+      default: "",
+    },
+    systemOneModel: {
+      type: "string",
+      label: "Self-hosted model ID",
+      description: "Decision model ID accepted by that server (SystemOne choice API). Independent of Laya and cloud model IDs.",
+      default: "",
+    },
+    systemOneApiKey: {
+      type: "string",
+      label: "Self-hosted server API token",
+      description: "Optional bearer token. Stored as a secret on the BB server.",
+      secret: true,
+    },
+    systemOneCloudFallback: {
+      type: "boolean",
+      label: "Allow cloud fallback for self-hosted decisions",
+      description: "If the self-hosted server fails, allow the same prompt and project context to be sent to configured OpenRouter, then Vercel. Off by default; never starts or contacts the local Laya sidecar.",
+      default: false,
     },
   });
 
@@ -398,43 +404,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   /** The ways to reach Jev that are set up, in the order to try them. */
   async function jevRoutes(): Promise<JevRoute[]> {
-    const config = await readConfig();
-    const secret = (value: unknown) =>
-      typeof value === "string" && value.trim() !== "" ? value.trim() : null;
-    const keys = {
-      vercel: secret(config.gatewayApiKey),
-      openrouter: secret(config.openRouterApiKey),
-    };
-    const models = {
-      local: config.jevModel === DEFAULT_JEV_MODELS.vercel ? DEFAULT_JEV_MODELS.local : config.jevModel,
-      vercel: config.jevModel,
-      openrouter: config.openRouterJevModel,
-    };
-    let order: readonly JevProvider[];
-    switch (config.jevProvider) {
-      case "local":
-      case "vercel":
-      case "openrouter":
-        order = [config.jevProvider];
-        break;
-      default:
-        order = ["local", "vercel", "openrouter"];
-    }
-    return order.flatMap((provider): JevRoute[] => {
-      if (provider === "local") {
-        // No key, and the sidecar URL is a preference, not a secret.
-        return [
-          {
-            provider,
-            apiKey: null,
-            model: models.local,
-            baseUrl: normalizeLayaUrl(config.layaUrl),
-          },
-        ];
-      }
-      const apiKey = keys[provider];
-      return apiKey === null ? [] : [{ provider, apiKey, model: models[provider] }];
-    });
+    return decisionRoutes(await readConfig());
   }
 
   type EnvironmentProvider = Awaited<

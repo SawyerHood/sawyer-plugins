@@ -18,7 +18,7 @@ bb plugin install git:https://github.com/SawyerHood/sawyer-plugins.git --plugin 
 
 Open **Settings → Magic Compose**. The page runs in the order you need it.
 
-1. **Configuration.** **Jev provider** picks where the decisions come from: `local` (the free laya sidecar on this machine), the Vercel AI Gateway, OpenRouter, or `auto`, which tries the sidecar first and then whichever key is set. For a gateway, paste a **Vercel AI Gateway API key** (Vercel dashboard → AI Gateway → API keys), an **OpenRouter API key** ([openrouter.ai/keys](https://openrouter.ai/keys)), or both; keys are stored as secrets on the BB server and never sent to the browser. For `local`, start the sidecar once (see [sidecar/README.md](./sidecar/README.md)) — nothing to paste, nothing leaves the machine.
+1. **Configuration.** **Decision provider** explicitly selects `local` (the bundled Laya sidecar), `selfhosted` (an existing server by URL), `vercel`, `openrouter`, or `auto`. Start the sidecar manually for `local`; for `selfhosted`, configure its complete endpoint URL, model ID, and optional secret bearer token. Selecting `selfhosted` never starts or contacts the local sidecar. Cloud keys remain independently configured and are stored as secrets on the BB server. As in the local-provider implementation, the default is `local`; `auto` tries local → Vercel → OpenRouter and never implicitly selects the external server.
 2. **Try it.** Route a prompt without starting anything. The line above it says whether Jev was reached, through which gateway, and how long the last decision took, so it is also the quickest check that a key works. Come back to it after every change below.
 3. **In the composer.** What Magic Compose does while it is on:
    - **Magic Compose may set** chooses which pickers are Magic Compose's: project, machine and environment, model, effort. Switch one off and it is always yours. With the project off, Magic Compose routes within whichever project the composer is on. Effort needs Model, because Jev chooses the effort for the model it chose.
@@ -32,7 +32,35 @@ Open **Settings → Magic Compose**. The page runs in the order you need it.
 
 Two folds at the bottom hold what is rarely touched. **Permission mode** is for threads started with `bb magic-compose spawn`, lowered where the machine or provider allows less; in the composer, the permission picker is yours. **Advanced** has the Jev model id for each gateway.
 
-Only the keys and the Jev provider are BB plugin settings. The rest are the plugin's own preferences, which `bb magic-compose preferences` reads and writes from a shell; `bb plugin config` does not reach them. BB draws declared settings as one flat card with no way to group them, and keeping the instructions beside the lists they govern mattered more.
+The keys, decision provider, and self-hosted server connection are BB plugin settings. The rest are the plugin's own preferences, which `bb magic-compose preferences` reads and writes from a shell; `bb plugin config` does not reach them. BB draws declared settings as one flat card with no way to group them, and keeping the instructions beside the lists they govern mattered more.
+
+### Local sidecar or an existing self-hosted server
+
+These are separate modes. `local` uses the Laya sidecar and manual launch instructions in [sidecar/README.md](./sidecar/README.md). Its URL and independent **Local Laya model ID** are under Advanced. The plugin does not spawn a Python process or download weights automatically.
+
+`selfhosted` only connects to an already running server. Set **Self-hosted server URL** to the complete endpoint, for example `https://models.example/v1/systemone`, and set **Self-hosted model ID** to the ID that server accepts. An optional **Self-hosted server API token** is a separate secret, sent as a bearer token. No installation of Laya, Kev, Python, or model weights is needed on the BB server for this mode. The URL is not rewritten or given a sidecar path.
+
+The external server must implement the `choice` subset of the [TypeSafe System One API](https://docs.typesafe.ai/api). System One is an API contract, not a model name; [Kev](https://github.com/jaredpalmer/kev) supports it. An OpenAI Chat Completions endpoint alone is not sufficient. A request looks like:
+
+```json
+{
+  "model": "your-model-id",
+  "state": { "task": "Fix a media download" },
+  "questions": {
+    "q0": {
+      "type": "choice",
+      "instructions": "Pick the project.",
+      "criteria": { "media": "Media downloads", "notes": "Knowledge notes" }
+    }
+  }
+}
+```
+
+The response contains `answers.q0` with `type: "choice"`, a choice from the offered keys, and preferably a probabilities map. Batched questions are answered under the same `q0`, `q1`, … IDs. Confidence and usage are optional; missing confidence stays unknown. Test the checkpoint's accuracy and context/option limits on your own tasks.
+
+Both local and external connections use HTTP/1.1-compatible fetch; cloud gateways retain the warm HTTP/2 transport. Credentials in URLs and redirects are rejected. Local, external, and cloud model IDs/credentials are independent, and switching modes keeps the other connections saved.
+
+Selecting `selfhosted` uses only that server by default. **Allow cloud fallback for self-hosted decisions** is off by default; enabling it permits the same prompt/project context to go to configured OpenRouter, then Vercel, after an external-server failure. It never falls back to the local sidecar. Selecting `local` stays local; `auto` keeps the local → Vercel → OpenRouter behavior from the local-provider implementation.
 
 ## How a prompt is routed
 
@@ -76,7 +104,7 @@ The plugin ships a `tune-magic-compose` skill. Ask an agent to “tune Magic Com
 
 ## Privacy and cost
 
-With Magic Compose on, the draft is sent as you type, not only when you send it (or each time you pause, if you set **Ask Jev** to “When I pause”): every decision sends the prompt so far (the first 9,000 and last 3,000 characters of a long one), your instructions, project names, folders, remotes, and recent thread titles, and machine names and load to wherever the Jev provider points. With **Local (laya)** that is a process on your own machine: nothing leaves it, and the cost is zero. Through a gateway, it goes to TypeSafe: Jev costs $0.042 per million input tokens and a decision is a few thousand tokens, a small fraction of a cent; a prompt typed over ten seconds takes about fifteen of them. The Vercel AI Gateway's free tier allows only about 10 Jev calls per 5 minutes, which Magic Compose uses up within one prompt; any Gateway credit lifts that. OpenRouter bills the same price from your OpenRouter credit.
+With Magic Compose on, the draft is sent as you type, not only when you send it (or each time you pause, if you set **Ask Jev** to “When I pause”): every decision sends the prompt so far (the first 9,000 and last 3,000 characters of a long one), your instructions, project names, folders, remotes, and recent thread titles, and machine names and load to wherever the Jev provider points. With `local` that is the configured Laya sidecar. With `selfhosted`, it is the configured external server; cloud delivery requires the separate fallback setting. In `auto`, local failures can use the configured cloud gateways. Through a gateway, it goes to TypeSafe: Jev costs $0.042 per million input tokens and a decision is a few thousand tokens, a small fraction of a cent; a prompt typed over ten seconds takes about fifteen of them. The Vercel AI Gateway's free tier allows only about 10 Jev calls per 5 minutes, which Magic Compose uses up within one prompt; any Gateway credit lifts that. OpenRouter bills the same price from your OpenRouter credit.
 
 ## Limits
 
