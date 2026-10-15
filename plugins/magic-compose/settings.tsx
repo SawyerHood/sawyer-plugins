@@ -246,7 +246,12 @@ function ago(at: number): string {
 }
 
 function statusLine(status: Status): { tone: "ok" | "idle" | "bad"; text: string } {
-  if (!status.hasApiKey) return { tone: "bad", text: "Add an API key above to connect Magic Compose to Jev." };
+  if (!status.hasApiKey) {
+    return {
+      tone: "bad",
+      text: "Configure Local (Laya sidecar), a self-hosted server URL/model, or a cloud API key above.",
+    };
+  }
   if (status.rotationSize === 0) {
     return { tone: "bad", text: "Add a model under Models and effort: Magic Compose needs one to choose." };
   }
@@ -902,6 +907,18 @@ function MoreSection() {
       </Fold>
       <Fold title="Advanced">
         <Card>
+          <ModelIdField
+            label="Local Laya sidecar URL"
+            value={preferences.layaUrl}
+            fallback={DEFAULT_PREFERENCES.layaUrl}
+            onSave={(layaUrl) => save({ layaUrl })}
+          />
+          <ModelIdField
+            label="Local Laya model ID"
+            value={preferences.layaModel}
+            fallback={DEFAULT_PREFERENCES.layaModel}
+            onSave={(layaModel) => save({ layaModel })}
+          />
           <ModelIdField
             label="Jev model id on OpenRouter"
             value={preferences.openRouterJevModel}

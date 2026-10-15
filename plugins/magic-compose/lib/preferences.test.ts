@@ -43,3 +43,24 @@ describe("readStoredPreferences", () => {
     });
   });
 });
+
+
+describe("independent Laya model preference", () => {
+  it("keeps a custom local model from #6 without changing Vercel", () => {
+    const { layaModel: _, ...stored } = DEFAULT_PREFERENCES;
+    const parsed = readStoredPreferences({ ...stored, jevModel: "custom-laya-checkpoint" });
+    expect(parsed.layaModel).toBe("custom-laya-checkpoint");
+    expect(parsed.jevModel).toBe("custom-laya-checkpoint");
+  });
+
+  it("does not infer a local model from older gateway-only preferences", () => {
+    const { layaModel: _, layaUrl: __, ...stored } = DEFAULT_PREFERENCES;
+    expect(readStoredPreferences({ ...stored, jevModel: "custom-vercel-model" }).layaModel)
+      .toBe(DEFAULT_PREFERENCES.layaModel);
+  });
+
+  it("keeps an explicitly configured local model independent of cloud changes", () => {
+    expect(readStoredPreferences({ ...DEFAULT_PREFERENCES, layaModel: "local-checkpoint", jevModel: "cloud-model" }).layaModel)
+      .toBe("local-checkpoint");
+  });
+});

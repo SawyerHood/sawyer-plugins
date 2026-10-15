@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Magic Compose",
-    "description": "Switch on Magic Compose in the new-thread composer and Jev picks the project, machine, model, reasoning level, and environment as you type, using your Vercel AI Gateway or OpenRouter key.",
+    "description": "Magic Compose picks the project, machine, model, reasoning level, and environment as you type, using a local Laya sidecar, an existing self-hosted decision server by URL, or Jev through Vercel/OpenRouter.",
     "branding": {
       "icon": "./assets/icon.svg"
     },

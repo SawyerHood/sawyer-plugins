@@ -8,15 +8,27 @@
 //   probabilities put the pick second.
 // - OpenRouter serves Jev from its Decisions endpoint.
 import { z } from "zod";
-import { DEFAULT_JEV_MODELS } from "./preferences";
+import { DEFAULT_JEV_MODELS, DEFAULT_LAYA_URL } from "./preferences";
 import { jevTransport } from "./transport";
 
-export type JevProvider = "vercel" | "openrouter";
+export type JevProvider = "local" | "selfhosted" | "vercel" | "openrouter";
 
 export const JEV_PROVIDERS: Record<
   JevProvider,
   { name: string; url: string; defaultModel: string; keysUrl: string }
 > = {
+  local: {
+    name: "Local (Laya sidecar)",
+    url: DEFAULT_LAYA_URL,
+    defaultModel: DEFAULT_JEV_MODELS.local,
+    keysUrl: "See sidecar/README.md",
+  },
+  selfhosted: {
+    name: "Self-hosted server (URL)",
+    url: "",
+    defaultModel: "laya-multilingual",
+    keysUrl: "Your self-hosted decision server",
+  },
   vercel: {
     name: "Vercel AI Gateway",
     url: "https://ai-gateway.vercel.sh/v4/ai/evaluation-model",
@@ -75,8 +87,10 @@ export type JevState = string | { [key: string]: unknown };
 
 export interface AskChoicesArgs {
   provider: JevProvider;
-  apiKey: string;
+  apiKey: string | null;
   model: string;
+  /** Complete endpoint URL for an explicitly selected self-hosted provider. */
+  baseUrl?: string;
   state: JevState;
   /**
    * Every question to answer about `state`, by caller-chosen key. Jev answers
@@ -113,7 +127,7 @@ const responseSchema = z.object({
 
 function buildRequest(args: AskChoicesArgs): { headers: Record<string, string>; body: unknown } {
   const base = {
-    Authorization: `Bearer ${args.apiKey}`,
+    ...(args.provider !== "local" && args.apiKey !== null && args.apiKey !== "" ? { Authorization: `Bearer ${args.apiKey}` } : {}),
     "Content-Type": "application/json",
   };
   // OpenRouter's schema wants a string for every option; Vercel accepts null.
@@ -124,7 +138,7 @@ function buildRequest(args: AskChoicesArgs): { headers: Record<string, string>; 
         type: "choice",
         instructions: question.instructions,
         criteria:
-          args.provider === "openrouter"
+          args.provider !== "vercel"
             ? Object.fromEntries(
                 Object.entries(question.options).map(([name, text]) => [name, text ?? ""]),
               )
@@ -132,9 +146,9 @@ function buildRequest(args: AskChoicesArgs): { headers: Record<string, string>; 
       },
     ]),
   );
-  if (args.provider === "openrouter") {
+  if (args.provider !== "vercel") {
     return {
-      headers: { ...base, "X-Title": "BB Magic Compose" },
+      headers: args.provider === "openrouter" ? { ...base, "X-Title": "BB Magic Compose" } : base,
       body: { model: args.model, state: args.state, questions },
     };
   }
@@ -172,6 +186,12 @@ function errorMessageFromBody(body: string): string {
 function errorForStatus(provider: JevProvider, status: number, body: string): JevError {
   const { name } = JEV_PROVIDERS[provider];
   const detail = errorMessageFromBody(body);
+  if (provider === "local" && status === 400) {
+    return new JevError("bad_response", `The Laya sidecar rejected the request: ${detail}`);
+  }
+  if (provider === "local" && status >= 500) {
+    return new JevError("failed", `The laya sidecar failed (HTTP ${status})${detail === "" ? "" : `: ${detail}`}`);
+  }
   if (status === 401 || status === 403) {
     return new JevError(
       "auth",
@@ -186,7 +206,7 @@ function errorForStatus(provider: JevProvider, status: number, body: string): Je
       "rate_limited",
       provider === "vercel"
         ? `The Vercel AI Gateway rate-limited Jev (HTTP ${status}). The free tier allows about 10 Jev calls per 5 minutes; add Gateway credits to lift it.`
-        : `OpenRouter rate-limited Jev (HTTP ${status}).`,
+        : `${name} rate-limited the decision request (HTTP ${status}).`,
     );
   }
   return new JevError(
@@ -225,14 +245,16 @@ async function requestOnce(
 ): Promise<Record<string, ChoiceAnswer>> {
   const startedAt = Date.now();
   const { headers, body: requestBody } = buildRequest(args);
-  const { url } = JEV_PROVIDERS[args.provider];
+  const url = endpointFor(args);
   const payload = JSON.stringify(requestBody);
   let status: number;
   let body: string;
-  if (args.fetchImpl === undefined) {
+  if (args.fetchImpl === undefined && args.provider !== "local" && args.provider !== "selfhosted") {
     ({ status, body } = await jevTransport.post(url, headers, payload, signal));
   } else {
-    const response = await args.fetchImpl(url, { method: "POST", signal, headers, body: payload });
+    const response = await (args.fetchImpl ?? fetch)(url, {
+      method: "POST", signal, headers, body: payload, redirect: "error",
+    });
     status = response.status;
     body = await response.text();
   }
@@ -327,8 +349,24 @@ export async function askChoices(args: AskChoicesArgs): Promise<Record<string, C
 
 export interface JevRoute {
   provider: JevProvider;
-  apiKey: string;
+  apiKey: string | null;
   model: string;
+  baseUrl?: string;
+}
+
+/** Self-hosted endpoints use HTTP/1.1 fetch; uvicorn need not implement h2c. */
+function endpointFor(args: Pick<AskChoicesArgs, "provider" | "baseUrl">): string {
+  if (args.provider !== "local" && args.provider !== "selfhosted") return JEV_PROVIDERS[args.provider].url;
+  let url: URL;
+  try {
+    url = new URL(args.baseUrl ?? JEV_PROVIDERS[args.provider].url);
+  } catch {
+    throw new JevError("failed", "Set a complete HTTP(S) decision endpoint URL in Magic Compose settings.");
+  }
+  if (!["http:", "https:"].includes(url.protocol) || url.username !== "" || url.password !== "") {
+    throw new JevError("failed", "Decision endpoints must use HTTP or HTTPS without credentials in the URL.");
+  }
+  return url.toString();
 }
 
 /**
@@ -340,8 +378,10 @@ export async function askChoicesVia(
   routes: readonly JevRoute[],
   args: Omit<AskChoicesArgs, keyof JevRoute>,
 ): Promise<Record<string, ChoiceAnswer>> {
+  args.signal?.throwIfAborted();
   let lastError: unknown = new JevError("failed", "No Jev API key is configured.");
   for (const route of routes) {
+    args.signal?.throwIfAborted();
     try {
       return await askChoices({ ...args, ...route });
     } catch (error) {
@@ -368,16 +408,18 @@ export async function askChoice(args: AskChoiceArgs): Promise<ChoiceAnswer> {
  */
 export async function warmRoutes(routes: readonly JevRoute[]): Promise<void> {
   await Promise.all(
-    routes.map((route) =>
-      jevTransport.warm(JEV_PROVIDERS[route.provider].url, () =>
+    routes.map((route) => {
+      const prime = () =>
         askChoices({
           ...route,
           state: "Warming up the connection.",
           questions: {
             ready: { instructions: "Is the connection ready?", options: { yes: "Ready.", no: "Not ready." } },
           },
-        }),
-      ),
-    ),
+        });
+      return route.provider === "local" || route.provider === "selfhosted"
+        ? prime().catch(() => undefined)
+        : jevTransport.warm(JEV_PROVIDERS[route.provider].url, prime);
+    }),
   );
 }

@@ -8,9 +8,14 @@ import { z } from "zod";
 
 /** Kept here, not with the Jev client, so the app can share this file without the client's Node code. */
 export const DEFAULT_JEV_MODELS = {
+  local: "laya/english",
   vercel: "typesafe-ai/jev",
   openrouter: "typesafe/jev-1.13",
 } as const;
+
+/** The sidecar endpoint the local route asks, overridable in preferences. */
+export const DEFAULT_LAYA_URL = "http://127.0.0.1:8899/decisions";
+
 
 export const PERMISSION_MODES = ["accept-edits", "auto", "full"] as const;
 
@@ -45,6 +50,9 @@ const fields = {
   holdSend: z.boolean(),
   /** Ask Jev as the draft is typed, or only once typing pauses. */
   pace: z.enum(["typing", "pause"]),
+  /** The local laya sidecar's decisions endpoint. */
+  layaUrl: z.string().url().max(300),
+  layaModel: jevModelSchema,
 };
 
 export const preferencesSchema = z.object(fields).strict();
@@ -64,6 +72,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   permissionMode: "auto",
   jevModel: DEFAULT_JEV_MODELS.vercel,
   openRouterJevModel: DEFAULT_JEV_MODELS.openrouter,
+  layaUrl: DEFAULT_LAYA_URL,
+  layaModel: DEFAULT_JEV_MODELS.local,
   maySet: { project: true, placement: true, model: true, effort: true },
   holdSend: true,
   pace: "typing",
@@ -81,6 +91,11 @@ export function readStoredPreferences(stored: unknown): Preferences {
   const parsed = preferencesSchema.safeParse({
     ...DEFAULT_PREFERENCES,
     ...record,
+    layaModel: record.layaModel ?? (
+      typeof record.layaUrl === "string" && typeof record.jevModel === "string" &&
+      record.jevModel !== DEFAULT_JEV_MODELS.vercel
+        ? record.jevModel : DEFAULT_JEV_MODELS.local
+    ),
     maySet: { ...DEFAULT_PREFERENCES.maySet, ...maySet },
   });
   return parsed.success ? parsed.data : DEFAULT_PREFERENCES;
