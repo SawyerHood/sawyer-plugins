@@ -42,6 +42,22 @@ export interface ProjectScope {
   name: string;
 }
 
+/**
+ * Substring match on the project name, preserving the incoming order. The
+ * project list comes from the host already ordered, so filtering must never
+ * reshuffle it — the picker should feel like the list, only shorter.
+ */
+export function searchProjects<T extends { readonly name: string }>(
+  projects: readonly T[],
+  query: string,
+): T[] {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length === 0) return [...projects];
+  return projects.filter((project) =>
+    project.name.toLowerCase().includes(normalized),
+  );
+}
+
 /** Threads in the chosen scope; every thread when the scope is null. */
 export function filterByProject(
   threads: readonly PluginSidebarThread[],

@@ -15,6 +15,7 @@ import {
   Tick02Icon,
   UserAdd01Icon,
   WorkflowCircle03Icon,
+  Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { cn } from "../lib/utils";
 
@@ -30,6 +31,7 @@ const ICON_MAP = {
   Edit: Edit02Icon,
   ListTodo: CheckListIcon,
   Loading: Loading03Icon,
+  Search: Search01Icon,
   Target: Target02Icon,
   Terminal: ComputerTerminal01Icon,
   UserRoundPlus: UserAdd01Icon,

@@ -16,7 +16,7 @@ default, and comes back the moment you switch away or disable this plugin.
 The plugin replaces the scrolling list only. bb's New-thread button, search
 field, plugin nav rows, and footer stay exactly where they are — this list
 filters by the host's search and adds just one control of its own, a project
-scope picker.
+scope picker with its own search field.
 
 ## The idea
 
@@ -73,6 +73,7 @@ header shows no parent chip.
 | `experimental_useSidebarThreadSplit`               | dragging a card out to a split pane                                                         |
 | `experimental_useSidebarThreadPullRequest`         | the `#412` badge, coloured by bb's attention state                                          |
 | `@radix-ui/react-context-menu` (shimmed)           | this plugin's own right-click menu, built on the action hook                                |
+| `@radix-ui/react-popover` (shimmed)                | the searchable project scope picker                                                         |
 | `bb.storage.database()` + `bb.rpc` + `bb.realtime` | the settled/snoozed store                                                                   |
 
 The plugin API ships **no components**. Status glyphs and the right-click menu

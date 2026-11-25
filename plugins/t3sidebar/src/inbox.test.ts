@@ -7,6 +7,7 @@ import {
   parentOf,
   partitionPinned,
   searchThreadsByTitle,
+  searchProjects,
   sortByCreatedAtDescending,
   threadDisplayTitle,
   visibleInboxThreads,
@@ -123,6 +124,34 @@ describe("searchThreadsByTitle", () => {
   it("returns everything for a blank query", () => {
     const threads = [thread({ id: "a" }), thread({ id: "b" })];
     expect(searchThreadsByTitle(threads, "   ")).toHaveLength(2);
+  });
+});
+
+describe("searchProjects", () => {
+  const projects = [
+    { id: "p1", name: "bb" },
+    { id: "p2", name: "better-notes" },
+    { id: "p3", name: "other" },
+  ];
+
+  it("matches case-insensitively on the project name", () => {
+    expect(searchProjects(projects, "BET").map((p) => p.id)).toEqual(["p2"]);
+  });
+
+  it("ignores surrounding spaces", () => {
+    expect(searchProjects(projects, "  bb  ").map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  it("keeps the host's order", () => {
+    expect(searchProjects(projects, "").map((p) => p.id)).toEqual([
+      "p1",
+      "p2",
+      "p3",
+    ]);
+  });
+
+  it("returns nothing when no name matches", () => {
+    expect(searchProjects(projects, "zzz")).toEqual([]);
   });
 });
 
