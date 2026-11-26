@@ -4,6 +4,7 @@ import {
   ArrowLeft01Icon,
   ArrowTurnBackwardIcon,
   ArrowUp01Icon,
+  ArrowUpDownIcon,
   CancelCircleIcon,
   CheckListIcon,
   Clock01Icon,
@@ -15,11 +16,13 @@ import {
   Tick02Icon,
   UserAdd01Icon,
   WorkflowCircle03Icon,
+  Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { cn } from "../lib/utils";
 
 const ICON_MAP = {
   ArrowTurnBackward: ArrowTurnBackwardIcon,
+  ArrowUpDown: ArrowUpDownIcon,
   Check: Tick02Icon,
   ChevronDown: ArrowDown01Icon,
   ChevronLeft: ArrowLeft01Icon,
@@ -30,6 +33,7 @@ const ICON_MAP = {
   Edit: Edit02Icon,
   ListTodo: CheckListIcon,
   Loading: Loading03Icon,
+  Search: Search01Icon,
   Target: Target02Icon,
   Terminal: ComputerTerminal01Icon,
   UserRoundPlus: UserAdd01Icon,

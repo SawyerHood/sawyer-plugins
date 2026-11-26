@@ -52,6 +52,6 @@
     "@types/better-sqlite3": "^7.6.12",
     "better-sqlite3": "12.10.0",
     "@radix-ui/react-context-menu": "^2.3.3",
-    "@radix-ui/react-select": "^2.3.3"
+    "@radix-ui/react-popover": "^1.1.23"
   }
 }

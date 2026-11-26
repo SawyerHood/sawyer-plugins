@@ -7,13 +7,8 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import { Icon } from "./components/Icon";
 import { cn } from "./lib/utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./components/Select";
+import { ProjectPicker } from "./components/ProjectPicker";
+import { SortPicker } from "./components/SortPicker";
 import { ThreadCard } from "./ThreadCard";
 import { SlimRow } from "./SlimRow";
 import { useLifecycle } from "./useLifecycle";
@@ -26,15 +21,16 @@ import {
   sortByCreatedAtDescending,
   visibleInboxThreads,
 } from "./inbox";
-
-const ALL_PROJECTS = "__all__";
+import { DEFAULT_SORT_MODE, sortThreads, type SortMode } from "./sort";
 
 /**
- * The sidebar's scrolling list: one flat, statically ordered stack of cards.
+ * The sidebar's scrolling list: one flat stack of cards, newest first by
+ * default.
  *
  * The host owns the New-thread button and the search field above it, so this
- * ships neither. It filters by the `searchQuery` prop and keeps only the one
- * control the host has no equivalent for: the project scope picker.
+ * ships neither. It filters by the `searchQuery` prop and adds two controls of
+ * its own: the project scope picker and the sort picker. Newest first stays the
+ * default, so the static order this sidebar is built around is unchanged.
  */
 export function ThreadInbox({
   activeThreadId,
@@ -44,7 +40,8 @@ export function ThreadInbox({
   const { status, threads, projects } = useSidebarThreads();
   const actions = useSidebarThreadActions();
   const lifecycle = useLifecycle(threads);
-  const [scope, setScope] = useState<string>(ALL_PROJECTS);
+  const [scope, setScope] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<SortMode>(DEFAULT_SORT_MODE);
   // One clock for every card in a render, quantized to the minute so the
   // labels do not disagree and do not churn on unrelated re-renders.
   const [nowMinute, setNowMinute] = useState(() =>
@@ -65,12 +62,15 @@ export function ThreadInbox({
     () => new Map(projects.map((project) => [project.id, project.name])),
     [projects],
   );
+  // Stable lookup for the project sort mode, so the memo below does not see a
+  // fresh function on every render.
+  const projectName = useMemo(
+    () => (projectId: string) => projectNameById.get(projectId) ?? "",
+    [projectNameById],
+  );
 
   const { pinned, inbox, snoozed, settled } = useMemo(() => {
-    const scoped = filterByProject(
-      visibleInboxThreads(threads),
-      scope === ALL_PROJECTS ? null : scope,
-    );
+    const scoped = filterByProject(visibleInboxThreads(threads), scope);
     // Children live in their parent's header chip instead of the flat list;
     // an orphan whose parent is not on screen stays here.
     const matched = searchThreadsByTitle(
@@ -88,8 +88,8 @@ export function ThreadInbox({
     }
     const split = partitionPinned(active);
     return {
-      pinned: sortByCreatedAtDescending(split.pinned),
-      inbox: sortByCreatedAtDescending(split.inbox),
+      pinned: sortThreads(split.pinned, sortMode, projectName),
+      inbox: sortThreads(split.inbox, sortMode, projectName),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozed: [...onSnoozeShelf].sort(
         (left, right) =>
@@ -97,42 +97,21 @@ export function ThreadInbox({
       ),
       settled: sortByCreatedAtDescending(onSettledShelf),
     };
-  }, [lifecycle, scope, searchQuery, threads]);
-
-  const scopeLabel =
-    scope === ALL_PROJECTS
-      ? "All projects"
-      : (projectNameById.get(scope) ?? "All projects");
+  }, [lifecycle, projectName, scope, searchQuery, sortMode, threads]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* The one control the host has no equivalent for. Everything else in
           the chrome above — New thread, search — is bb's and stays bb's. */}
       <div className="flex shrink-0 items-center gap-1 px-2 pb-1">
-        <Select value={scope} onValueChange={setScope}>
-          {/* Ghost trigger: no border, no filled track — it reads as a label
-              until you hover it. */}
-          <SelectTrigger
-            className="h-7 min-w-0 flex-1 border-0 px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none hover:bg-sidebar-accent focus:ring-0"
-            aria-label={`Project scope: ${scopeLabel}`}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_PROJECTS} className="text-xs">
-              All projects
-            </SelectItem>
-            {projects.map((project) => (
-              <SelectItem
-                key={project.id}
-                value={project.id}
-                className="text-xs"
-              >
-                {project.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="min-w-0 flex-1">
+          <ProjectPicker
+            projects={projects}
+            value={scope}
+            onChange={setScope}
+          />
+        </div>
+        <SortPicker mode={sortMode} onChange={setSortMode} />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">

@@ -178,7 +178,7 @@ describe("ThreadInbox", () => {
     expect(screen.queryByLabelText("New thread")).toBeNull();
   });
 
-  it("scopes to one project", () => {
+  it("scopes to one project", async () => {
     render(
       [
         thread({ id: "a", title: "In bb", projectId: "proj_1" }),
@@ -189,10 +189,9 @@ describe("ThreadInbox", () => {
         { id: "proj_2", name: "other", isPersonal: false },
       ],
     );
-    // Radix opens on keyboard too, which jsdom can drive without pointer
-    // capture. Enter opens the list; the option click picks the scope.
-    fireEvent.keyDown(screen.getByLabelText(/Project scope/), { key: "Enter" });
-    fireEvent.click(screen.getByRole("option", { name: "other" }));
+    // The picker opens on click; the option click picks the scope.
+    fireEvent.click(screen.getByLabelText(/Project scope/));
+    fireEvent.click(await screen.findByRole("option", { name: "other" }));
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
     expect(screen.getByText("In other")).toBeDefined();
   });
@@ -205,6 +204,125 @@ describe("ThreadInbox", () => {
   it("reports an empty inbox and a fruitless search differently", () => {
     render([]);
     expect(screen.getByText("No threads yet")).toBeDefined();
+  });
+});
+
+describe("project picker search", () => {
+  const projects = [
+    { id: "proj_bb", name: "bb", isPersonal: false },
+    { id: "proj_better", name: "better-notes", isPersonal: false },
+    { id: "proj_other", name: "other", isPersonal: false },
+  ];
+
+  const threads = [
+    thread({ id: "thr_bb", title: "In bb", projectId: "proj_bb" }),
+    thread({ id: "thr_better", title: "In notes", projectId: "proj_better" }),
+    thread({ id: "thr_other", title: "In other", projectId: "proj_other" }),
+  ];
+
+  async function openPicker() {
+    fireEvent.click(screen.getByLabelText(/Project scope/));
+    return screen.findByLabelText("Search projects");
+  }
+
+  it("filters the project list as the user types", async () => {
+    render(threads, projects);
+    const search = await openPicker();
+    fireEvent.change(search, { target: { value: "bet" } });
+    expect(screen.getByRole("option", { name: "better-notes" })).toBeDefined();
+    expect(screen.queryByRole("option", { name: "bb" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "other" })).toBeNull();
+  });
+
+  it("matches case-insensitively and ignores surrounding spaces", async () => {
+    render(threads, projects);
+    const search = await openPicker();
+    fireEvent.change(search, { target: { value: "  BETter  " } });
+    expect(screen.getByRole("option", { name: "better-notes" })).toBeDefined();
+  });
+
+  it("keeps All projects reachable while filtering", async () => {
+    render(threads, projects);
+    const search = await openPicker();
+    fireEvent.change(search, { target: { value: "zzz" } });
+    expect(screen.getByRole("option", { name: "All projects" })).toBeDefined();
+    expect(screen.getByText("No projects found")).toBeDefined();
+  });
+
+  it("selects a filtered project", async () => {
+    render(threads, projects);
+    const search = await openPicker();
+    fireEvent.change(search, { target: { value: "notes" } });
+    fireEvent.click(screen.getByRole("option", { name: "better-notes" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByText("In notes")).toBeDefined();
+  });
+
+  it("walks the list with the arrow keys and Enter", async () => {
+    render(threads, projects);
+    const search = await openPicker();
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByText("In bb")).toBeDefined();
+  });
+
+  it("closes on Escape and reopens with the full list", async () => {
+    render(threads, projects);
+    const search = await openPicker();
+    fireEvent.change(search, { target: { value: "bet" } });
+    fireEvent.keyDown(search, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Search projects")).toBeNull(),
+    );
+    fireEvent.click(screen.getByLabelText(/Project scope/));
+    await screen.findByLabelText("Search projects");
+    expect(screen.getByRole("option", { name: "bb" })).toBeDefined();
+    expect(screen.getByRole("option", { name: "other" })).toBeDefined();
+  });
+});
+
+describe("sorting", () => {
+  it("starts on newest first", () => {
+    render([thread({ id: "a", title: "Only" })]);
+    expect(
+      screen.getByLabelText(/Sort threads: Newest first/),
+    ).toBeDefined();
+  });
+
+  it("reorders the inbox when the user picks another mode", async () => {
+    render([
+      thread({ id: "a", title: "Created later", createdAt: 2, updatedAt: 10 }),
+      thread({ id: "b", title: "Updated later", createdAt: 1, updatedAt: 20 }),
+    ]);
+    const titles = () =>
+      screen.getAllByRole("listitem").map((row) => row.textContent ?? "");
+
+    // Newest first reads createdAt, so the later-created row leads.
+    expect(titles()[0]).toContain("Created later");
+
+    fireEvent.click(screen.getByLabelText(/Sort threads/));
+    fireEvent.click(
+      await screen.findByRole("radio", { name: "Recently updated" }),
+    );
+
+    await waitFor(() => expect(titles()[0]).toContain("Updated later"));
+  });
+
+  it("sorts within pinned threads too", async () => {
+    render([
+      thread({ id: "a", title: "Pinned old", isPinned: true, createdAt: 1 }),
+      thread({ id: "b", title: "Pinned new", isPinned: true, createdAt: 2 }),
+      thread({ id: "c", title: "Plain" }),
+    ]);
+    fireEvent.click(screen.getByLabelText(/Sort threads/));
+    fireEvent.click(await screen.findByRole("radio", { name: "Oldest first" }));
+
+    const pinned = screen.getByRole("region", { name: /pinned/i });
+    const titles = within(pinned)
+      .getAllByRole("listitem")
+      .map((row) => row.textContent ?? "");
+    await waitFor(() => expect(titles[0]).toContain("Pinned old"));
   });
 });
 
