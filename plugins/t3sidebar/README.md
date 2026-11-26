@@ -15,15 +15,26 @@ default, and comes back the moment you switch away or disable this plugin.
 
 The plugin replaces the scrolling list only. bb's New-thread button, search
 field, plugin nav rows, and footer stay exactly where they are — this list
-filters by the host's search and adds just one control of its own, a project
-scope picker with its own search field.
+filters by the host's search and adds two controls of its own: a project scope
+picker with its own search field, and a sort picker.
 
 ## The idea
 
-The list never re-orders itself. Threads sort by creation time, newest first,
-and hold that place until you park them. Status lives inside each card instead
-of in its position, so the sidebar only moves when you act — no row slides
-away under your cursor because an agent finished something.
+By default the list never re-orders itself. Threads sort by creation time,
+newest first, and hold that place until you park them. Status lives inside each
+card instead of in its position, so the sidebar only moves when you act — no
+row slides away under your cursor because an agent finished something.
+
+The sort picker is opt-in. **Newest first** (the default) and **Oldest first**
+keep that static order; the other modes read live fields and will re-order as
+threads change:
+
+- **Recently updated** — most recently touched first.
+- **Waiting longest** — the thread that has waited for you the longest.
+- **Needs attention** — a raised hand, then unread, then newest attention.
+- **Title A–Z** — alphabetical.
+- **Project**, **Working first**, **Provider**, **Branch or machine** — extras
+  for orienting a larger list.
 
 Three shelves:
 

@@ -282,6 +282,50 @@ describe("project picker search", () => {
   });
 });
 
+describe("sorting", () => {
+  it("starts on newest first", () => {
+    render([thread({ id: "a", title: "Only" })]);
+    expect(
+      screen.getByLabelText(/Sort threads: Newest first/),
+    ).toBeDefined();
+  });
+
+  it("reorders the inbox when the user picks another mode", async () => {
+    render([
+      thread({ id: "a", title: "Created later", createdAt: 2, updatedAt: 10 }),
+      thread({ id: "b", title: "Updated later", createdAt: 1, updatedAt: 20 }),
+    ]);
+    const titles = () =>
+      screen.getAllByRole("listitem").map((row) => row.textContent ?? "");
+
+    // Newest first reads createdAt, so the later-created row leads.
+    expect(titles()[0]).toContain("Created later");
+
+    fireEvent.click(screen.getByLabelText(/Sort threads/));
+    fireEvent.click(
+      await screen.findByRole("radio", { name: "Recently updated" }),
+    );
+
+    await waitFor(() => expect(titles()[0]).toContain("Updated later"));
+  });
+
+  it("sorts within pinned threads too", async () => {
+    render([
+      thread({ id: "a", title: "Pinned old", isPinned: true, createdAt: 1 }),
+      thread({ id: "b", title: "Pinned new", isPinned: true, createdAt: 2 }),
+      thread({ id: "c", title: "Plain" }),
+    ]);
+    fireEvent.click(screen.getByLabelText(/Sort threads/));
+    fireEvent.click(await screen.findByRole("radio", { name: "Oldest first" }));
+
+    const pinned = screen.getByRole("region", { name: /pinned/i });
+    const titles = within(pinned)
+      .getAllByRole("listitem")
+      .map((row) => row.textContent ?? "");
+    await waitFor(() => expect(titles[0]).toContain("Pinned old"));
+  });
+});
+
 describe("parking threads", () => {
   it("moves a settled thread to the Settled shelf", async () => {
     renderSlot(inbox, listProps, {

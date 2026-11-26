@@ -29,6 +29,41 @@ export interface ThreadActivitySignals {
 export type ThreadShelf = "active" | "snoozed" | "settled";
 
 /**
+ * The structural subset of a thread that says whether it is running. Kept
+ * structural so both the SDK's thread row and a test fixture satisfy it.
+ */
+export interface ThreadWorkSource {
+  activity: {
+    workflows: number;
+    backgroundAgents: number;
+    backgroundCommands: number;
+    planMode: number;
+    goals: number;
+  };
+  indicator: string;
+}
+
+/**
+ * Any live work at all, which blocks parking and wakes a parked thread.
+ *
+ * bb has more kinds of live work than a single session status — workflows,
+ * background agents, background commands, plan mode, goals — and every one of
+ * them counts.
+ */
+export function threadIsWorking(thread: ThreadWorkSource): boolean {
+  const { activity } = thread;
+  return (
+    activity.workflows > 0 ||
+    activity.backgroundAgents > 0 ||
+    activity.backgroundCommands > 0 ||
+    activity.planMode > 0 ||
+    activity.goals > 0 ||
+    thread.indicator === "runtime" ||
+    thread.indicator === "working-draft"
+  );
+}
+
+/**
  * Whether a thread may be parked at all.
  *
  * bb has more kinds of live work than a single session status — workflows,
